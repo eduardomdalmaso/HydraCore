@@ -1,8 +1,11 @@
 # Build & Dist
 bin/
 dist/
+target/
 hydravms
 hydravms.exe*
+hydrastream
+hydrastream.exe*
 *.exe
 *.exe~
 *.dll

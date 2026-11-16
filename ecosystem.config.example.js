@@ -11,7 +11,7 @@ const apps = [
   // 1. HydraVMS Backend - Control Plane REST API & WebSockets (porta 8083)
   {
     name: "hydra-vms-api",
-    cwd: __dirname,
+    cwd: path.join(__dirname, "modules", "hydravms"),
     script: process.platform === "win32" ? "./hydravms.exe" : "./bin/hydravms",
     interpreter: "none",
     autorestart: true,
@@ -30,7 +30,7 @@ const apps = [
   // 2. HydraVMS Frontend - Painel de Controle e Orquestrador Web (porta 5173)
   {
     name: "hydra-vms",
-    cwd: path.join(__dirname, "web"),
+    cwd: path.join(__dirname, "modules", "hydravms", "web"),
     script: "./node_modules/vite/bin/vite.js",
     args: "--host --port 5173",
     autorestart: true,

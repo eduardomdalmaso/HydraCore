@@ -1,4 +1,6 @@
-# HydraVMS Project Guidelines (GEMINI.md)
+# HydraCore Project Guidelines (GEMINI.md)
+
+Monorepo **HydraCore** unificado via `go.work` com módulos DDD + Hexagonal independentes em `modules/hydravms` (Control Plane) e `modules/hydrastream` (Data Plane).
 
 Este documento define a arquitetura de software, **protocolos de ingestão de câmeras (ONVIF WS-Discovery, RTSP, RTMP)**, **motor de geração de relatórios (PDF, Excel, CSV) & consultas analíticas otimizadas**, **regras de segurança e acesso estritamente via Token**, **escalabilidade em cluster distribuído**, **comunicação inter-servidores (gRPC / NATS / WebRTC)**, **especificação REST API & Swagger/OpenAPI 3.0**, **padrões visuais de UI/UX das páginas**, padrão Medallion de dados, **arquitetura de banco de dados relacional SQL (PostgreSQL / SQLite WAL)**, pipelines de IA com **SAHI**, **Inferência Acionada por Movimento (Motion-Gated)**, **modos de gravação**, política de armazenamento MinIO S3, isolamento multi-tenant, **autopreservação de disco (Anti-Crash Guard)**, exportação ultrarrápida e protocolo de auto-reparo do ecossistema **HydraVMS** (Video Management System, Orquestrador de Eventos de IA e Gravação).
 

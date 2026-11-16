@@ -12,17 +12,20 @@ echo -e "\e[1;36m   HYDRA ECOSYSTEM // AUTO-BOOTSTRAP & PM2 LAUNCHER     \e[0m"
 echo -e "\e[1;36m========================================================\e[0m"
 
 # 1. HydraVMS
+VMS_DIR="$ROOT_DIR/modules/hydravms"
+STREAM_DIR="$ROOT_DIR/modules/hydrastream"
+
 echo -e "\n\e[1;33m[1/5] Compilando HydraVMS Backend...\e[0m"
-if [ ! -f "$ROOT_DIR/bin/hydravms" ]; then
-    mkdir -p "$ROOT_DIR/bin"
-    (cd "$ROOT_DIR" && go build -o bin/hydravms ./cmd/hydravms)
+if [ ! -f "$VMS_DIR/bin/hydravms" ]; then
+    mkdir -p "$VMS_DIR/bin"
+    (cd "$VMS_DIR" && go build -o bin/hydravms ./cmd/hydravms)
 fi
 
 # 2. HydraStream
 echo -e "\n\e[1;33m[2/5] Compilando HydraStream (Data Plane RTSP)...\e[0m"
-if [ -d "$PARENT_DIR/HydraStream" ] && [ ! -f "$PARENT_DIR/HydraStream/bin/hydrastream" ]; then
-    mkdir -p "$PARENT_DIR/HydraStream/bin"
-    (cd "$PARENT_DIR/HydraStream" && go build -o bin/hydrastream ./cmd/hydrastream)
+if [ -d "$STREAM_DIR" ] && [ ! -f "$STREAM_DIR/bin/hydrastream" ]; then
+    mkdir -p "$STREAM_DIR/bin"
+    (cd "$STREAM_DIR" && go build -o bin/hydrastream ./cmd/hydrastream)
 fi
 
 # 3. HydraForge
@@ -34,8 +37,8 @@ fi
 
 # 4. Frontend Dependencies
 echo -e "\n\e[1;33m[4/5] Instalando dependências do Frontend...\e[0m"
-if [ ! -d "$ROOT_DIR/web/node_modules" ]; then
-    (cd "$ROOT_DIR/web" && npm install)
+if [ ! -d "$VMS_DIR/web/node_modules" ]; then
+    (cd "$VMS_DIR/web" && npm install)
 fi
 
 # 5. Launch with PM2

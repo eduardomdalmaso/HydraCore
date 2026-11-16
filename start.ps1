@@ -1,4 +1,4 @@
-# ==============================================================================
+﻿# ==============================================================================
 # Hydra Ecosystem - 1-Click Turnkey Bootstrapper & PM2 Orchestrator
 # Builds missing binaries, installs frontend deps, and launches all 4 planes.
 # ==============================================================================
@@ -13,10 +13,11 @@ $RootDir = $PSScriptRoot
 $ParentDir = Split-Path $RootDir -Parent
 
 # 1. Build HydraVMS
+$VmsDir = Join-Path $RootDir "modules\hydravms"
 Write-Host "`n[1/5] Verificando HydraVMS Backend..." -ForegroundColor Yellow
-if (-not (Test-Path "$RootDir\hydravms.exe")) {
+if (-not (Test-Path "$VmsDir\hydravms.exe")) {
     Write-Host "  -> Compilando hydravms.exe..." -ForegroundColor Gray
-    Push-Location $RootDir
+    Push-Location $VmsDir
     go build -o hydravms.exe ./cmd/hydravms
     Pop-Location
     Write-Host "  -> hydravms.exe compilado com sucesso!" -ForegroundColor Green
@@ -25,7 +26,7 @@ if (-not (Test-Path "$RootDir\hydravms.exe")) {
 }
 
 # 2. Build HydraStream
-$StreamDir = Join-Path $ParentDir "HydraStream"
+$StreamDir = Join-Path $RootDir "modules\hydrastream"
 Write-Host "`n[2/5] Verificando HydraStream (Data Plane RTSP)..." -ForegroundColor Yellow
 if (Test-Path $StreamDir) {
     if (-not (Test-Path "$StreamDir\hydrastream.exe")) {
@@ -93,9 +94,9 @@ if (Test-Path $StreamDir) {
 # 5. Frontend Dependencies
 
 Write-Host "`n[5/6] Verificando dependências do Frontend..." -ForegroundColor Yellow
-if (-not (Test-Path "$RootDir\web\node_modules")) {
+if (-not (Test-Path "$VmsDir\web\node_modules")) {
     Write-Host "  -> Instalando dependências npm no frontend..." -ForegroundColor Gray
-    Push-Location "$RootDir\web"
+    Push-Location "$VmsDir\web"
     npm install
     Pop-Location
     Write-Host "  -> Dependências do frontend instaladas!" -ForegroundColor Green
