@@ -1,0 +1,136 @@
+<script setup lang="ts">
+import { ref, computed } from 'vue'
+import type { StreamItem } from '../../../types/streamTree'
+import { getCameraSnapshotUrl, getStreamRelayRtspUrl, copyToClipboard } from '../../../utils/streamUrls'
+import { formatChannelId } from '../../../utils/idFormatter'
+import { deriveSubStreamUrl } from '../../../constants/rtspPresets'
+
+const props = defineProps<{ stream: StreamItem }>()
+const emit = defineEmits<{ (e: 'close'): void; (e: 'edit', stream: StreamItem): void }>()
+const refreshKey = ref(Date.now()), isRefreshing = ref(false), hasImageError = ref(false)
+const activeStreamType = ref<'main' | 'sub'>('main')
+const copiedNotice = ref<string | null>(null)
+let refreshSafetyTimer: number | null = null
+
+const hasSubStream = computed(() => props.stream.protocol !== 'RTMP' && props.stream.protocol !== 'LOOP' && (
+  Boolean(props.stream.subUrl) || props.stream.url.includes('/stream') || props.stream.protocol === 'ONVIF' || props.stream.protocol === 'RTSP'
+))
+
+const secureStreamUrl = computed(() => getStreamRelayRtspUrl(props.stream.id, activeStreamType.value === 'sub'))
+const currentCodec = computed(() => activeStreamType.value === 'sub' ? (props.stream.subCodec || 'H.264') : (props.stream.codec || 'H.265'))
+const currentCompression = computed(() => currentCodec.value === 'H.265' ? 'HEVC' : 'AVC')
+const currentResolution = computed(() => activeStreamType.value === 'sub' ? (props.stream.subResolution || '640x360') : (props.stream.resolution || '1920x1080'))
+const currentFps = computed(() => activeStreamType.value === 'sub' ? (props.stream.subFps || 15) : (props.stream.fps || 30))
+const currentBitrate = computed(() => activeStreamType.value === 'sub' ? (props.stream.subBitrate || '512 Kbps') : (props.stream.bitrate || '4096 Kbps'))
+
+const copyUrl = async (url: string) => {
+  if (!url) return
+  if (await copyToClipboard(url)) {
+    copiedNotice.value = 'URL COPIADA!'
+    setTimeout(() => { copiedNotice.value = null }, 1800)
+  }
+}
+
+const onImageLoad = () => {
+  hasImageError.value = false; isRefreshing.value = false
+  if (refreshSafetyTimer) { clearTimeout(refreshSafetyTimer); refreshSafetyTimer = null }
+}
+
+const onImageError = () => {
+  hasImageError.value = true; isRefreshing.value = false
+  if (refreshSafetyTimer) { clearTimeout(refreshSafetyTimer); refreshSafetyTimer = null }
+}
+
+const refreshSnapshot = async () => {
+  if (isRefreshing.value) return
+  isRefreshing.value = true; hasImageError.value = false
+  if (refreshSafetyTimer) clearTimeout(refreshSafetyTimer)
+  refreshSafetyTimer = window.setTimeout(() => { isRefreshing.value = false }, 12000)
+  try {
+    const res = await fetch(getCameraSnapshotUrl(props.stream.id, true))
+    if (res.ok) { refreshKey.value = Date.now() }
+    else { isRefreshing.value = false; hasImageError.value = true }
+  } catch { isRefreshing.value = false; hasImageError.value = true }
+}
+</script>
+
+<template>
+  <div class="vms-split-pane">
+    <!-- Header with Stream Selector and Edit Action -->
+    <div class="vms-split-header" style="display: flex; justify-content: space-between; align-items: center;">
+      <div class="vms-flex-row" style="gap: 0.75rem; align-items: center;">
+        <div style="width: 36px; height: 36px; border-radius: 8px; background: rgba(255, 94, 58, 0.15); border: 1px solid rgba(255, 94, 58, 0.4); display: flex; align-items: center; justify-content: center;">
+          <svg width="18" height="18" viewBox="0 0 576 512" fill="#ff5e3a"><path d="M0 128C0 92.7 28.7 64 64 64H320c35.3 0 64 28.7 64 64V384c0 35.3-28.7 64-64 64H64c-35.3 0-64-28.7-64-64V128zM559.1 99.8c10.4 5.6 16.9 16.4 16.9 28.2V384c0 11.8-6.5 22.6-16.9 28.2s-23 5-32.9-1.6l-112-74.7c-9.8-6.5-16.1-17.4-16.1-29.9V205.1c0-12.5 6.3-23.4 16.1-29.9l112-74.7c9.9-6.6 22.5-7.3 32.9-1.6z"/></svg>
+        </div>
+        <div class="vms-flex-col" style="gap: 2px;">
+          <div class="vms-flex-row" style="gap: 8px; align-items: center;">
+            <span class="vms-font-bold" style="color: #fff; font-size: 13px;">{{ formatChannelId(stream.id) }} // {{ stream.name }}</span>
+            <div class="vms-flex-row" style="gap: 4px; align-items: center;">
+              <button type="button" class="vms-badge" :style="{ background: activeStreamType === 'main' ? 'rgba(255, 94, 58, 0.25)' : 'rgba(255, 255, 255, 0.05)', color: activeStreamType === 'main' ? '#ff5e3a' : 'var(--vms-text-dim)', border: activeStreamType === 'main' ? '1px solid rgba(255, 94, 58, 0.5)' : '1px solid rgba(255, 255, 255, 0.1)', cursor: 'pointer', padding: '2px 6px', fontSize: '10px', fontWeight: '600' }" title="Exibir dados do Fluxo Principal (Main Stream)" @click="activeStreamType = 'main'">[MAIN]</button>
+              <button v-if="hasSubStream" type="button" class="vms-badge" :style="{ background: activeStreamType === 'sub' ? 'rgba(255, 94, 58, 0.25)' : 'rgba(255, 255, 255, 0.05)', color: activeStreamType === 'sub' ? '#ff5e3a' : 'var(--vms-text-dim)', border: activeStreamType === 'sub' ? '1px solid rgba(255, 94, 58, 0.5)' : '1px solid rgba(255, 255, 255, 0.1)', cursor: 'pointer', padding: '2px 6px', fontSize: '10px', fontWeight: '600' }" title="Exibir dados do Fluxo Secundário (Substream)" @click="activeStreamType = 'sub'">[SUB]</button>
+            </div>
+            <span v-if="copiedNotice" class="vms-badge" style="color: var(--vms-neu-accent-green); background: rgba(0,255,157,0.15); border: 1px solid rgba(0,255,157,0.4); font-size: 8px; padding: 1px 4px;">{{ copiedNotice }}</span>
+          </div>
+          <span
+            class="vms-text-mono vms-text-2xs"
+            style="color: var(--vms-neu-accent-cyan); cursor: pointer; text-decoration: underline dotted;"
+            title="Clique para copiar a URL segura do fluxo"
+            @click="copyUrl(secureStreamUrl)"
+          >
+            {{ secureStreamUrl }}
+          </span>
+        </div>
+      </div>
+      <button type="button" class="vms-btn vms-btn-secondary" style="height: 28px; padding: 0 10px; font-size: 11px; gap: 5px;" title="Alterar Cadastro da Câmera" @click="emit('edit', stream)">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" /><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" /></svg>
+        <span>ALTERAR CADASTRO</span>
+      </button>
+    </div>
+
+    <!-- Snapshot / Preview Box -->
+    <div style="width: 100%; aspect-ratio: 16 / 9; max-height: 480px; background: #000000; border: 1px solid var(--vms-border); border-radius: 8px; display: flex; align-items: center; justify-content: center; overflow: hidden; position: relative;">
+      <img
+        v-if="!hasImageError"
+        :src="`${getCameraSnapshotUrl(stream.id)}&k=${refreshKey}`"
+        alt="Snapshot"
+        style="width: 100%; height: 100%; object-fit: contain; display: block;"
+        @error="onImageError"
+        @load="onImageLoad"
+      />
+      <div v-else class="vms-flex-col" style="align-items: center; justify-content: center; gap: 0.5rem; text-align: center;">
+        <svg width="56" height="56" viewBox="0 0 576 512" fill="#ff5e3a"><path d="M0 128C0 92.7 28.7 64 64 64H320c35.3 0 64 28.7 64 64V384c0 35.3-28.7 64-64 64H64c-35.3 0-64-28.7-64-64V128zM559.1 99.8c10.4 5.6 16.9 16.4 16.9 28.2V384c0 11.8-6.5 22.6-16.9 28.2s-23 5-32.9-1.6l-112-74.7c-9.8-6.5-16.1-17.4-16.1-29.9V205.1c0-12.5 6.3-23.4 16.1-29.9l112-74.7c9.9-6.6 22.5-7.3 32.9-1.6z"/></svg>
+        <span class="vms-text-mono vms-text-2xs vms-text-dim">// AGUARDANDO CAPTURA (CLIQUE NO BOTÃO ACIMA)</span>
+      </div>
+
+      <!-- HUD Loading Overlay while capturing/loading new frame -->
+      <div
+        v-if="isRefreshing"
+        style="position: absolute; inset: 0; background: rgba(7, 8, 12, 0.65); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; z-index: 2; pointer-events: none; backdrop-filter: blur(2px);"
+      >
+        <div class="loader-sm"></div>
+        <span class="vms-text-mono vms-text-2xs" style="color: #ff5e3a; letter-spacing: 0.8px; font-weight: 600;">CAPTURANDO NOVO FRAME...</span>
+      </div>
+
+      <button style="position: absolute; top: 8px; right: 8px; width: 30px; height: 30px; border-radius: 6px; background: rgba(14, 17, 23, 0.85); border: 1px solid rgba(255, 94, 58, 0.4); display: flex; align-items: center; justify-content: center; cursor: pointer; transition: all 0.2s;" :style="{ opacity: isRefreshing ? 0.7 : 1, pointerEvents: isRefreshing ? 'none' : 'auto' }" title="Capturar Novo Snapshot do Fluxo" @click.stop="refreshSnapshot">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#ff5e3a" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" :style="{ animation: isRefreshing ? 'vms-spin 0.8s linear infinite' : 'none' }"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+      </button>
+    </div>
+
+    <!-- Telemetry Information Grid -->
+    <div class="vms-telemetry-grid">
+      <div class="vms-telemetry-card"><span class="vms-text-dim vms-text-2xs">CODEC</span><span class="vms-text-mono vms-text-xs vms-font-semibold" style="color: #fff;">{{ currentCodec }}</span></div>
+      <div class="vms-telemetry-card"><span class="vms-text-dim vms-text-2xs">COMPRESSAO</span><span class="vms-text-mono vms-text-xs vms-font-semibold" style="color: #fff;">{{ currentCompression }}</span></div>
+      <div class="vms-telemetry-card"><span class="vms-text-dim vms-text-2xs">RESOLUCAO</span><span class="vms-text-mono vms-text-xs vms-font-semibold" style="color: #fff;">{{ currentResolution }}</span></div>
+      <div class="vms-telemetry-card"><span class="vms-text-dim vms-text-2xs">FPS</span><span class="vms-text-mono vms-text-xs vms-font-semibold" style="color: #fff;">{{ currentFps }} FPS</span></div>
+      <div class="vms-telemetry-card">
+        <span class="vms-text-dim vms-text-2xs">GRAVANDO</span>
+        <span class="vms-text-mono vms-text-xs vms-font-semibold" :style="{ color: stream.recordMode && stream.recordMode !== 'disabled' ? 'var(--vms-neu-accent-green)' : 'var(--vms-text-dim)' }">
+          {{ stream.recordMode && stream.recordMode !== 'disabled' ? 'SIM' : 'NAO' }}
+        </span>
+      </div>
+      <div class="vms-telemetry-card"><span class="vms-text-dim vms-text-2xs">TAXA DE FLUXO / BITRATE</span><span class="vms-text-mono vms-text-xs vms-font-semibold" style="color: #fff;">{{ currentBitrate }}</span></div>
+      <div class="vms-telemetry-card"><span class="vms-text-dim vms-text-2xs">ANALITICOS</span><span class="vms-text-mono vms-text-xs vms-font-semibold" style="color: #fff;">{{ stream.analyticsCount || 0 }}</span></div>
+      <div class="vms-telemetry-card"><span class="vms-text-dim vms-text-2xs">EVENTOS DE IA</span><span class="vms-text-mono vms-text-xs vms-font-semibold" style="color: #fff;">{{ stream.eventsCount || 0 }}</span></div>
+    </div>
+  </div>
+</template>

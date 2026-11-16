@@ -1,0 +1,170 @@
+package onvif
+
+import (
+	"bytes"
+	"context"
+	"encoding/base64"
+	"fmt"
+	"os"
+	"os/exec"
+	"strings"
+	"time"
+
+	"hydrastream/internal/adapters/secondary/proc"
+	"hydrastream/internal/domain"
+	"hydrastream/internal/ports"
+)
+
+// Adapter implements the ports.ONVIFDiscoverer secondary adapter.
+type Adapter struct {
+	soap *soapClient
+}
+
+// NewONVIFAdapter instantiates an ONVIF discovery and SOAP management adapter.
+func NewONVIFAdapter() ports.ONVIFDiscoverer {
+	return &Adapter{
+		soap: newSOAPClient(),
+	}
+}
+
+// Discover broadcasts WS-Discovery probe packets on the local subnet.
+func (a *Adapter) Discover(ctx context.Context, timeout time.Duration) ([]domain.ONVIFDevice, error) {
+	if timeout <= 0 {
+		timeout = 2500 * time.Millisecond
+	}
+	return performWSDiscovery(ctx, timeout)
+}
+
+func captureSnapshotFromRTSP(ctx context.Context, rtspURL string) ([]byte, error) {
+	if rtspURL == "" {
+		return nil, fmt.Errorf("empty rtsp url")
+	}
+	ctxTimeout, cancel := context.WithTimeout(ctx, 3500*time.Millisecond)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctxTimeout, proc.GetFFmpegPath(),
+		"-rtsp_transport", "tcp",
+		"-timeout", "3000000",
+		"-i", rtspURL,
+		"-vframes", "1",
+		"-q:v", "2",
+		"-f", "image2pipe",
+		"-vcodec", "mjpeg",
+		"-",
+	)
+	proc.SetHideWindow(cmd)
+	var buf bytes.Buffer
+	cmd.Stdout = &buf
+	if err := cmd.Run(); err != nil || buf.Len() == 0 {
+		return nil, fmt.Errorf("ffmpeg snapshot capture failed: %w", err)
+	}
+	return buf.Bytes(), nil
+}
+
+// ProbeDevice queries device information, streaming profiles, and RTSP URL for a target camera.
+func (a *Adapter) ProbeDevice(ctx context.Context, ipAddress string, port int, username, password string) (*domain.ONVIFDevice, error) {
+	if port <= 0 {
+		port = 80
+	}
+	endpoint := fmt.Sprintf("http://%s:%d/onvif/device_service", ipAddress, port)
+
+	mfg, model, fw, serial, err := a.soap.getDeviceInformation(ctx, endpoint, username, password)
+	if err != nil {
+		// Try alternative ONVIF port 8899, 8000 or 8080 if 80 failed
+		if port == 80 {
+			for _, altPort := range []int{8899, 8000, 8080} {
+				altEndpoint := fmt.Sprintf("http://%s:%d/onvif/device_service", ipAddress, altPort)
+				if m, mod, f, s, err2 := a.soap.getDeviceInformation(ctx, altEndpoint, username, password); err2 == nil {
+					endpoint = altEndpoint
+					port = altPort
+					mfg, model, fw, serial = m, mod, f, s
+					err = nil
+					break
+				}
+			}
+		}
+		if err != nil {
+			return nil, fmt.Errorf("failed to connect to ONVIF device service on %s:%d: %w", ipAddress, port, err)
+		}
+	}
+
+	mediaEndpoint, err := a.soap.getMediaXAddr(ctx, endpoint, username, password)
+	if err != nil {
+		mediaEndpoint = fmt.Sprintf("http://%s:%d/onvif/media_service", ipAddress, port)
+	}
+
+	profiles, _ := a.soap.getProfiles(ctx, mediaEndpoint, username, password)
+
+	var defaultRTSP string
+	for i := range profiles {
+		uri, err := a.soap.getStreamURI(ctx, mediaEndpoint, username, password, profiles[i].Token)
+		if err == nil && uri != "" {
+			profiles[i].RTSPStream = uri
+			if defaultRTSP == "" {
+				defaultRTSP = uri
+			}
+		}
+	}
+
+	if defaultRTSP == "" {
+		if username != "" && password != "" {
+			defaultRTSP = fmt.Sprintf("rtsp://%s:%s@%s:554/live/ch0", username, password, ipAddress)
+		} else {
+			defaultRTSP = fmt.Sprintf("rtsp://%s:554/live/ch0", ipAddress)
+		}
+	}
+
+	cleanIP := strings.ReplaceAll(ipAddress, ".", "_")
+
+	var snapshotURL string
+	if len(profiles) > 0 {
+		snapURI, errSnap := a.soap.getSnapshotURI(ctx, mediaEndpoint, username, password, profiles[0].Token)
+		if errSnap == nil && snapURI != "" {
+			snapBytes, errFetch := a.soap.fetchSnapshotBytes(ctx, snapURI, username, password)
+			if errFetch == nil && len(snapBytes) > 0 {
+				snapshotURL = fmt.Sprintf("data:image/jpeg;base64,%s", base64.StdEncoding.EncodeToString(snapBytes))
+				_ = os.MkdirAll("samples", 0755)
+				_ = os.WriteFile(fmt.Sprintf("samples/onvif_%s_%d.jpg", cleanIP, port), snapBytes, 0644)
+				_ = os.WriteFile(fmt.Sprintf("samples/cam_%s.jpg", cleanIP), snapBytes, 0644)
+			}
+		}
+	}
+
+	// Fallback to direct RTSP frame capture if SOAP snapshot is unavailable or unsupported
+	if snapshotURL == "" && defaultRTSP != "" {
+		snapBytes, errRTSP := captureSnapshotFromRTSP(ctx, defaultRTSP)
+		if errRTSP == nil && len(snapBytes) > 0 {
+			snapshotURL = fmt.Sprintf("data:image/jpeg;base64,%s", base64.StdEncoding.EncodeToString(snapBytes))
+			_ = os.MkdirAll("samples", 0755)
+			_ = os.WriteFile(fmt.Sprintf("samples/onvif_%s_%d.jpg", cleanIP, port), snapBytes, 0644)
+			_ = os.WriteFile(fmt.Sprintf("samples/cam_%s.jpg", cleanIP), snapBytes, 0644)
+		}
+	}
+
+	name := fmt.Sprintf("%s %s", mfg, model)
+	if strings.TrimSpace(name) == "" {
+		name = fmt.Sprintf("ONVIF Cam %s", ipAddress)
+	}
+
+	return &domain.ONVIFDevice{
+		DeviceID:        fmt.Sprintf("onvif_%s_%d", cleanIP, port),
+		Name:            name,
+		Manufacturer:    mfg,
+		Model:           model,
+		FirmwareVersion: fw,
+		SerialNumber:    serial,
+		IPAddress:       ipAddress,
+		Port:            port,
+		XAddr:           endpoint,
+		RTSPURL:         defaultRTSP,
+		SnapshotURL:     snapshotURL,
+		Profiles:        profiles,
+		DiscoveredAt:    time.Now(),
+	}, nil
+}
+
+// GetStreamURI retrieves the RTSP stream URL for a given profile token.
+func (a *Adapter) GetStreamURI(ctx context.Context, xaddr, username, password, profileToken string) (string, error) {
+	return a.soap.getStreamURI(ctx, xaddr, username, password, profileToken)
+}
+

@@ -1,0 +1,96 @@
+<script setup lang="ts">
+import { ref, onMounted, onUnmounted } from "vue"
+import UserMenuDropdown from "./UserMenuDropdown.vue"
+import { useBranding } from "../../composables/useBranding"
+
+const { branding } = useBranding()
+
+const props = withDefaults(
+  defineProps<{ username?: string; isAdmin?: boolean; currentMode?: "vms" | "admin"; unreadAlertsCount?: number }>(),
+  { username: "admin", isAdmin: true, currentMode: "vms", unreadAlertsCount: 0 }
+)
+const emit = defineEmits<{
+  (e: "toggleAlerts"): void
+  (e: "toggleHelp"): void
+  (e: "switchMode", mode: "vms" | "admin"): void
+  (e: "logout"): void
+}>()
+const isUserMenuOpen = ref(false), isCalendarOpen = ref(false), currentTimeStr = ref("")
+const userMenuRef = ref<HTMLElement | null>(null), calRef = ref<HTMLElement | null>(null)
+
+const updateTime = () => {
+  const now = new Date(), days = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sab"], mos = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"]
+  currentTimeStr.value = `${days[now.getDay()]}, ${String(now.getDate()).padStart(2, "0")} ${mos[now.getMonth()]} • ${now.toTimeString().slice(0, 5)}`
+}
+
+const onOutsideClick = (e: MouseEvent) => {
+  const t = e.target as Node
+  if (isUserMenuOpen.value && userMenuRef.value && !userMenuRef.value.contains(t)) isUserMenuOpen.value = false
+  if (isCalendarOpen.value && calRef.value && !calRef.value.contains(t)) isCalendarOpen.value = false
+}
+
+let timer: any = null
+onMounted(() => { updateTime(); timer = setInterval(updateTime, 1000); window.addEventListener("click", onOutsideClick) })
+onUnmounted(() => { if (timer) clearInterval(timer); window.removeEventListener("click", onOutsideClick) })
+
+const handleSelectMode = (mode: "vms" | "admin") => {
+  if (mode === "admin" && !props.isAdmin) return
+  if (mode === "admin" && props.currentMode === "vms") {
+    window.open(window.location.origin + window.location.pathname + "#admin", "hydravms_admin_center")
+  } else if (mode === "vms" && props.currentMode === "admin") {
+    window.open(window.location.origin + window.location.pathname + "#vms", "hydravms_main_vms")
+  } else {
+    emit("switchMode", mode)
+  }
+  isUserMenuOpen.value = false
+}
+</script>
+
+<template>
+  <header class="vms-header" style="background: #15181d; border-bottom: 1px solid var(--vms-border); height: 44px; padding: 0 1rem; display: flex; justify-content: space-between; align-items: center;">
+    <div class="vms-flex-row" style="align-items: center; gap: 0.55rem;">
+      <img :src="branding.headerLogo || '/hydra.svg'" alt="Logo" style="width: 22px; height: 22px; object-fit: contain;" />
+      <span style="color: #ffffff; font-family: var(--vms-font-roboto); font-size: 15px; font-weight: 800; letter-spacing: 0.8px;">
+        {{ currentMode === 'admin' ? (branding.adminTitle || 'ADMIN CENTER') : (branding.systemName || 'HYDRA VMS') }}
+      </span>
+    </div>
+
+    <div ref="calRef" style="position: relative;">
+      <button class="vms-btn vms-btn-ghost vms-btn-sm" style="color: #ffffff; font-family: var(--vms-font-roboto); font-size: 13.5px; font-weight: 600; letter-spacing: 0.3px; padding: 0.25rem 0.85rem;" @click.stop="isCalendarOpen = !isCalendarOpen">
+        {{ currentTimeStr || "Qua, 03 Set • 20:55" }}
+      </button>
+      <div v-if="isCalendarOpen" class="vms-gnome-calendar-popup">
+        <div class="vms-flex-between" style="border-bottom: 1px solid var(--vms-border); padding-bottom: 0.5rem;">
+          <span class="vms-font-semibold vms-text-xs" style="color: #fff; font-family: var(--vms-font-roboto);">SETEMBRO 2026</span>
+          <button class="vms-ubuntu-close-btn" style="position: relative; top: 0; right: 0; width: 18px; height: 18px;" @click="isCalendarOpen = false">
+            <svg width="8" height="8" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M2 2L10 10M10 2L2 10" /></svg>
+          </button>
+        </div>
+        <div class="vms-gnome-calendar-grid">
+          <span v-for="(d, idx) in ['D','S','T','Q','Q','S','S']" :key="idx" class="vms-text-2xs vms-text-dim" style="font-weight: 600; padding: 2px 0;">{{ d }}</span>
+          <span v-for="n in 30" :key="n" class="vms-gnome-cal-day" :class="{ active: n === 9 }">{{ n }}</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="vms-flex-row" style="gap: 0.5rem; align-items: center;">
+      <button class="vms-btn vms-btn-ghost vms-btn-sm" style="padding: 0.35rem 0.65rem; display: flex; align-items: center; gap: 4px;" title="Guia da Tela & Ajuda Rápida" @click="emit('toggleHelp')">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--vms-neu-accent-orange);"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        <span class="vms-text-mono" style="font-size: 10px; font-weight: 700; color: #fff;">AJUDA</span>
+      </button>
+
+      <button class="vms-btn vms-btn-ghost vms-btn-sm" style="position: relative; padding: 0.35rem 0.65rem;" title="Alertas" @click="emit('toggleAlerts')">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--vms-neu-accent-orange);"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
+        <span v-if="unreadAlertsCount > 0" class="vms-status-led alert" style="position: absolute; top: 4px; right: 4px;"></span>
+      </button>
+
+      <div ref="userMenuRef" class="vms-user-dropdown-container">
+        <button class="vms-btn vms-btn-secondary vms-btn-sm" style="display: flex; align-items: center; gap: 0.5rem; padding: 0.3rem 0.65rem;" @click.stop="isUserMenuOpen = !isUserMenuOpen">
+          <span class="vms-text-xs" style="color: #fff; font-family: var(--vms-font-roboto); font-weight: 500;">{{ username }}</span>
+          <span style="font-size: 9px; color: var(--vms-neu-accent-orange);">▼</span>
+        </button>
+        <UserMenuDropdown :username="username" :isAdmin="isAdmin" :currentMode="currentMode" :isOpen="isUserMenuOpen" @switchMode="handleSelectMode" @logout="emit('logout')" @close="isUserMenuOpen = false" />
+      </div>
+    </div>
+  </header>
+</template>

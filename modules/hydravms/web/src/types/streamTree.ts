@@ -1,0 +1,40 @@
+export interface StreamItem {
+  id: string
+  folderId?: string
+  name: string
+  protocol: 'RTSP' | 'RTMP' | 'ONVIF' | 'LOOP'
+  url: string
+  subUrl?: string
+  ip: string
+  port: number
+  codec: 'H.265' | 'H.264'
+  subCodec?: 'H.265' | 'H.264'
+  resolution: string
+  subResolution?: string
+  fps: number
+  subFps?: number
+  bitrate: string
+  subBitrate?: string
+  recordMode: 'continuous' | 'motion' | 'ai_event' | 'disabled'
+  status: 'online' | 'offline' | 'recording'
+  has_ptz: boolean
+  latitude?: number
+  longitude?: number
+  locationName?: string
+  timezone?: string
+  brand?: string
+  model?: string
+  serialNumber?: string
+  firmware?: string
+  macAddress?: string
+  snapshotUrl?: string
+  analyticsCount?: number
+  eventsCount?: number
+}
+
+export interface FolderNode {
+  id: string
+  name: string
+  isExpanded: boolean
+  streams: StreamItem[]
+}

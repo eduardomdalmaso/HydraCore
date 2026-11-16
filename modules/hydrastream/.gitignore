@@ -1,0 +1,70 @@
+# GitIgnore for HydraStream Project
+
+# Agent Private Rules, Skills, and Customizations (Local Only - DO NOT PUSH)
+.gemini/
+.agents/
+_agents/
+
+# Binary & Build Artifacts
+bin/
+/hydrastream
+/hydrastream.exe*
+target/
+*.so
+*.a
+*.o
+*.dylib
+*.exe
+*.exe~
+*.dll
+
+# Storage & Databases
+storage/
+*.db
+*.db-*
+*.db-shm
+*.db-wal
+
+
+# Python Build & Cache Artifacts
+__pycache__/
+*.pyc
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+
+# Shared Memory temporary files
+/dev/shm/hs_shm_*
+
+# Camera Snapshots & Media (Sensitive - NEVER COMMIT)
+samples/
+samples/*
+!samples/.gitkeep
+snapshots/
+*.jpg
+*.jpeg
+*.png
+*.webp
+*.mp4
+*.mjpeg
+
+# Environment & Secrets
+.env
+.env.local
+*.pem
+*.key
+*.crt
+
+# IDE & System Files
+.idea/
+.vscode/
+.DS_Store
+
+# PM2 Local Ecosystem Configs
+ecosystem.config.js
+ecosystem.config.cjs
+!ecosystem.config.example.js
+!ecosystem.config.example.cjs
+
+

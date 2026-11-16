@@ -1,0 +1,186 @@
+# HydraStream & HydraForge Project Guidelines (GEMINI.md)
+
+Este documento define a arquitetura, design system, catálogo de skills, pipelines de dados/IA, rotinas de testes, validação rigorosa de parâmetros e protocolo de auto-reparo do ecossistema **HydraStream** (Control Plane & Ingestão Zero-Copy) e **HydraForge** (Estúdio de Treinamento YOLO).
+
+---
+
+## 0. Arquitetura Split-Plane & Limites Invioláveis do Ecossistema
+
+O ecossistema Hydra opera em 4 planos com responsabilidades atômicas:
+
+1. **Data Plane / Motor de Mídia (HydraStream :8080 & Motor Rust hydra-engine :8085):** Exclusivo para descoberta ONVIF WS-Discovery, probing, ingestão RTSP TCP RFC 2326, snapshots e streaming WSP (WebSocket Stream Protocol) binário com aceleração NVENC dinâmica para H.265 em GPUs NVIDIA, além de buffer Zero-Copy `/dev/shm` e CUDA IPC.
+2. **Control Plane (HydraVMS :8083):** Exclusivo para PostgreSQL (câmeras, pastas, usuários, RBAC, layouts, perfis de gravação e workflows). **PROIBIDO** conter processamento de vídeo ou FFmpeg.
+3. **Analytics Plane (HydraForge :8081):** Treinamento YOLO, autotuning e compilação TensorRT na RTX 5090.
+4. **Curation Plane (HydraVault :8082):** Curadoria e auto-rotulagem de datasets com SAM 2.
+
+---
+
+## 1. Filosofia de Engenharia e Estrutura Arquitetural
+
+O projeto segue estritamente a **Arquitetura Hexagonal (Ports & Adapters)** combinada com **Domain-Driven Design (DDD)**:
+
+```text
+hydrastream
+├── cmd/                          # Entrypoints principais dos binários
+├── internal/
+│   ├── domain/                   # Entidades puras e regras de negócio (ZERO imports de infra/HTTP)
+│   ├── ports/                    # Interfaces de entrada (Driving) e saída (Driven)
+│   ├── application/              # Casos de uso e orquestração de serviços
+│   └── adapters/
+│       ├── primary/http/         # Controladores REST, Telemetria e WebSockets
+│       └── secondary/
+│           ├── ingest/           # Adaptador RFC 2326 RTSP / TCP RTP
+│           ├── gpu/              # Detector de hardware GPU (NVIDIA RTX 5090 / CUDA 13.3)
+│           ├── logger/           # Ring Buffer em memória para logs e erros
+│           ├── memory/           # Repositório thread-safe em memória
+│           ├── nats/             # Publicador NATS JetStream
+│           ├── onvif/            # Scanner WS-Discovery e SOAP ONVIF
+│           ├── vmd/              # Detector de movimento por grade de células
+│           └── shm/              # Gerenciador de memória compartilhada POSIX (/dev/shm)
+├── crates/hydra-engine/          # Motor Data Plane em Rust (Lock-free Ring Buffer & Governor)
+└── sdk/python/                   # SDK Python Zero-Copy para analíticos
+```
+
+### Regras Inquebráveis de Backend:
+1. **Pureza do Domínio:** O pacote `internal/domain/` **NUNCA** deve importar pacotes de infraestrutura como `net/http`, `database/sql` ou bibliotecas externas de rede.
+2. **Concorrência Segura:** Toda sessão de stream ou worker é isolada com `context.WithCancel` e sincronizada via ponteiros atômicos (`sync/atomic`) e `sync.RWMutex`.
+3. **Hardware Acceleration:** Prioridade máxima para Zero-Copy (`/dev/shm` no CPU e `CUDA IPC` na VRAM da GPU NVIDIA).
+4. **Modularidade e Limite de Linhas Backend (Go & Rust):** Arquivos de implementação Go e Rust devem ser mantidos enxutos e modulares (meta de <= 200-250 linhas, teto absoluto de 350 linhas). Módulos que crescem devem ser decompostos em submódulos coesos (ex: `rtmp/`, `transport/`), e testes extensos extraídos para diretórios `tests/` ou arquivos `_test.go`.
+
+---
+
+## 2. Design System & Estilo Visual (Clean Slate Dark / High-Tech HUD)
+
+O frontend adota o design system oficial Clean Slate Dark (espelhado do **HydraVMS**):
+
+### Tokens e Cores Primárias:
+- **Fundo Principal & Superfícies:** `#07080c` (Main Background), `#0e1117` (Surface), `#14171d` (Elevated Cards).
+- **Cores de Ação e Destaque:**
+  - Primário / Ações: `#ff5e3a` (Laranja HUD / Ações Primárias)
+  - Bordas Sutis: `rgba(255, 255, 255, 0.06)`
+  - Textos Principais: `#ffffff` (Títulos & Dados), `#8b94a0` (Muted / Labels)
+- **Status LEDs Universais (Neon Dots sem texto ao lado):**
+  - Online / Ingestão Ativa: `#00ff9d` (Verde neon com glow)
+  - Fan-Out / Gravação: `#00f0ff` (Azul neon pulsante)
+  - Alerta / Buffer Alto: `#fcee0a` (Amarelo cyber neon)
+  - Queda / Erro: `#ff003c` (Vermelho magenta neon)
+- **Tipografia Modular:** Google Fonts (`Roboto` / `Inter` para interface e `JetBrains Mono` para métricas, IDs, offsets e FPS).
+
+### ⚠️ Regras Estritas de Frontend & UI Standards:
+- **Modularidade & Coesão:** Componentes `.vue`/`.jsx` até 150 linhas (teto de 200 linhas para views complexas), composables/lógica `.ts` até 100-120 linhas; dicionários `locales/` e `types/` livres.
+- **Proibição Absoluta de Emojis em Listas e Dropdowns:** Nunca usar emojis dentro de `<select>`, `<option>`, dropdowns, tabelas ou listas em nenhum projeto.
+- **Nomenclatura Concisa & HUD:** Rótulos atômicos (`INGESTAO`, `CONSUMIDORES`, `CODEC`, `RESOLUCAO`, `FPS`, `BITRATE`, `SHM BUFFER`).
+- **Botões de Confirmação:** O texto do botão de confirmação e salvamento é estritamente **`SALVAR`**.
+
+---
+
+## 3. Catálogo de Skills & Ecossistema Ultralytics
+
+O projeto possui integração direta com as skills oficiais de IA e UI localizadas em `.agents/skills/`:
+
+| Skill | Finalidade |
+| :--- | :--- |
+| **`stream-ui`** | Design system Clean Slate Dark, tokens, tipografia (`Roboto`/`JetBrains Mono`), layout e componentes modulares (< 100 linhas). |
+| **`validate-project`** | Executa auditoria de conformidade DDD, contagem de linhas web e testes unitários. |
+| **`yolo`** | Router principal de comandos e CLI Ultralytics. |
+| **`yolo-models`** | Guia de arquiteturas: YOLOv8, YOLO11, YOLO26 (Nano a XLarge) e variantes (`detect`, `segment`, `pose`, `obb`). |
+| **`yolo-training`** | Hiperparâmetros, otimizadores (`AdamW`/`SGD`), batch size dinâmico, AMP FP16/BF16 e callbacks. |
+| **`yolo-datasets`** | Estruturas de `data.yaml`, classes, splits train/val e anotações. |
+| **`yolo-tuning`** | Otimização de hiperparâmetros por algoritmos genéticos e Ray Tune. |
+| **`yolo-inference`** | Predição de alta velocidade, tracking e streaming de vídeo. |
+| **`yolo-export`** | Compilação e exportação para **TensorRT (`.engine`)**, **ONNX**, FP16 e quantização INT8. |
+
+---
+
+## 4. Pipeline de Ingestão e Treinamento de Modelos
+
+```text
+[ Câmera IP / RTSP ]
+        │
+        ▼ (RFC 2326 TCP Demuxing)
+[ HydraStream Ingest Engine ]
+        │
+        ▼ (Zero-Copy Ring Buffer /dev/shm - 8.46 GB/s)
+[ Pipeline Fan-Out & FPS Governor ]
+   ├──► [ Consumidor Analítico YOLO (2 FPS) ]
+   └──► [ Active Learning / Dataset Collection ]
+              │
+              ▼ (Treinamento na RTX 5090 via HydraForge)
+        [ Ultralytics PyTorch Training Loop ]
+              │
+              ▼ (Exportação 1-Clique)
+        [ TensorRT Engine (.engine) / ONNX ]
+              │
+              ▼
+        [ Inferência Ultrarrápida a 18.500+ FPS ]
+```
+
+---
+
+## 5. Validação de Parâmetros e Restrições de Domínio
+
+Antes de qualquer execução ou persistência, os seguintes limites devem ser validados:
+
+1. **Parâmetros de Stream:**
+   - `stream_id`: Obrigatório, alfanumérico e underscores (ex: `cam_entrance_01`).
+   - `ingest_fps`: Entre `1.0` e `120.0` FPS.
+   - `target_fps` por consumidor: Entre `0.1` e `60.0` FPS.
+2. **Parâmetros de Treinamento YOLO:**
+   - `epochs`: Inteiro positivo entre `1` e `1000`.
+   - `imgsz`: Múltiplo de 32 (ex: `640`, `1280`, `1920`).
+   - `device`: Identificador CUDA válido (`0`, `cuda:0` ou `cpu`).
+   - `batch`: `-1` (Auto-batch) ou potências de 2 (`8`, `16`, `32`, `64`).
+
+---
+
+## 6. Bateria de Testes e Benchmarks Físicos
+
+Todos os comandos de validação são automatizados via `Makefile`:
+
+```bash
+# Executa todos os testes unitários e de concorrência (Go & Rust)
+make test
+
+# Executa o benchmark de throughput de memória compartilhada POSIX SHM em Rust
+make benchmark
+
+# Executa a comparação em hardware real: Tradicional vs HydraStream CPU vs GPU RTX 5090
+make benchmark-compare
+
+# Inicia o servidor em modo de desenvolvimento (Go + Rust WSP Engine)
+make dev
+
+# Inicia o servidor Rust WSP standalone
+make wsp-server
+
+# Publica fluxo RTSP de teste
+make stream-sample
+```
+
+---
+
+## 7. Protocolo de Auto-Reparo & Validação Pós-Prompt (Self-Healing Rules)
+
+Ao final de **qualquer modificação de código**, o agente deve obrigatoriamente executar o seguinte checklist de auto-reparo antes de concluir:
+
+```bash
+# 1. Auditoria de Limite de Linhas Web (Composables <= 120, Views <= 200, Locales/Types isentos)
+wc -l web/css/*.css web/css/*/*.css web/js/*.js web/js/*/*.js web/src/**/*.css web/src/**/*.jsx 2>/dev/null | awk '$2 !~ /locales|types/ && $1 > 200 { print "VIOLATION: " $2 " has " $1 " lines (>200)" }'
+
+# 2. Auditoria de Limite de Linhas Backend (Go & Rust <= 350 teto)
+wc -l crates/hydra-engine/src/*.rs crates/hydra-engine/src/*/*.rs 2>/dev/null | awk '$2 != "total" && $2 !~ /tests/ && $1 > 350 { print "VIOLATION RUST: " $2 " has " $1 " lines (>350)" }'
+
+# 3. Auditoria de Pureza DDD (Nenhum import de net/http no domínio)
+grep -rn "net/http" internal/domain/ && echo "VIOLAÇÃO DDD: Remova net/http do domínio!"
+
+# 4. Compilação e Testes Automatizados
+make test && make build
+
+# 4. Auditoria de Paridade de Internacionalização (i18n)
+# Todo texto ou chave nova adicionada no frontend DEVE existir em todos os idiomas suportados (PT, EN, ES).
+
+# 5. Sincronização da Documentação
+# Garantir que README.md (Inglês) e README.pt-BR.md (Português) estejam 100% atualizados.
+```
+
+Se qualquer etapa falhar, o código deve ser corrigido imediatamente antes de prosseguir.

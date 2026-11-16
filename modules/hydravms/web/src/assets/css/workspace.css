@@ -1,0 +1,92 @@
+/* Vezha-Style Workspace Asset Explorer Vertical Accordion */
+.vms-workspace-layout { display: flex; height: 100%; width: 100%; background: var(--vms-neu-bg); overflow: hidden; }
+.vms-asset-sidebar {
+  width: 250px; min-width: 250px; background: var(--vms-neu-surface);
+  box-shadow: 4px 0 14px rgba(0, 0, 0, 0.4); display: flex; flex-direction: column;
+  flex-shrink: 0; z-index: 10; transition: width 0.22s cubic-bezier(0.4, 0, 0.2, 1), min-width 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+  overflow: hidden; position: relative; font-family: var(--vms-font-roboto);
+}
+.vms-asset-sidebar.collapsed { width: 10px !important; min-width: 10px !important; cursor: pointer; background: #111419; }
+
+/* Clickable Interactive Border Line */
+.vms-sidebar-toggle-line {
+  position: absolute; top: 0; right: 0; bottom: 0; width: 10px; cursor: pointer;
+  background: transparent; border-right: 2px solid rgba(255, 94, 58, 0.35);
+  display: flex; align-items: center; justify-content: center; z-index: 25; transition: all 0.2s ease;
+}
+.vms-sidebar-toggle-line:hover, .vms-asset-sidebar.collapsed:hover .vms-sidebar-toggle-line {
+  background: rgba(255, 94, 58, 0.2); border-right-color: var(--vms-neu-accent-orange);
+}
+.vms-sidebar-toggle-pill {
+  width: 16px; height: 44px; border-radius: 4px; background: var(--vms-neu-surface);
+  border: 1px solid var(--vms-neu-accent-orange); color: var(--vms-neu-accent-orange);
+  display: flex; align-items: center; justify-content: center; font-size: 10px;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.5); opacity: 0; transition: opacity 0.2s ease, transform 0.2s ease;
+}
+.vms-sidebar-toggle-line:hover .vms-sidebar-toggle-pill, .vms-asset-sidebar.collapsed:hover .vms-sidebar-toggle-pill {
+  opacity: 1; transform: scale(1.05);
+}
+
+/* Vertical Accordion Sections */
+.vms-accordion-header {
+  display: flex; align-items: center; justify-content: space-between; padding: 0.65rem 0.75rem;
+  background: #16191f; border-bottom: 1px solid var(--vms-border); cursor: pointer;
+  user-select: none; transition: background 0.15s ease, border-color 0.15s ease;
+  font-family: var(--vms-font-roboto) !important;
+}
+.vms-accordion-header:hover { background: #1b1f26; }
+.vms-accordion-header.active { border-left: 3px solid var(--vms-neu-accent-orange); }
+.vms-accordion-header span { font-family: var(--vms-font-roboto) !important; }
+
+.vms-sidebar-icon-btn {
+  background: transparent; border: none; padding: 2px 4px; border-radius: 3px;
+  cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.15s ease;
+  color: var(--vms-neu-accent-orange);
+}
+.vms-sidebar-icon-btn:hover { background: rgba(255, 94, 58, 0.2); transform: scale(1.1); }
+
+.vms-asset-item {
+  display: flex; align-items: center; justify-content: space-between; padding: 0.45rem 0.65rem;
+  border-radius: 6px; background: var(--vms-neu-bg); box-shadow: var(--vms-shadow-convex-sm);
+  border: 1px solid var(--vms-border); cursor: pointer; transition: all var(--vms-transition-fast);
+  font-family: var(--vms-font-roboto) !important; color: #ffffff;
+}
+.vms-asset-item span { font-family: var(--vms-font-roboto) !important; font-size: var(--vms-font-xs); }
+.vms-asset-item:hover { border-color: rgba(255, 94, 58, 0.4); transform: translateX(2px); color: #ffffff; }
+.vms-asset-item.active {
+  background: rgba(255, 94, 58, 0.14) !important; border-color: rgba(255, 94, 58, 0.55) !important;
+  border-left: 3px solid var(--vms-neu-accent-orange) !important;
+}
+.vms-asset-item.active span { color: var(--vms-neu-accent-orange) !important; font-weight: 700 !important; }
+.vms-asset-item.active svg { stroke: var(--vms-neu-accent-orange) !important; }
+
+/* Neon Status LEDs */
+.vms-status-led { width: 7px; height: 7px; border-radius: 50%; display: inline-block; flex-shrink: 0; transition: all 0.2s ease; background: #00ff9d !important; box-shadow: 0 0 8px rgba(0, 255, 157, 0.95), 0 0 2px #00ff9d !important; }
+.vms-status-led.online { background: #00ff9d !important; box-shadow: 0 0 8px rgba(0, 255, 157, 0.95), 0 0 2px #00ff9d !important; }
+.vms-status-led.offline { background: #ff003c !important; box-shadow: 0 0 8px rgba(255, 0, 60, 0.95), 0 0 2px #ff003c !important; }
+.vms-status-led.alert, .vms-status-led.alerta, .vms-status-led.alarm, .vms-status-led.alarme { background: #ff5e3a !important; box-shadow: 0 0 8px rgba(255, 94, 58, 0.95), 0 0 2px #ff5e3a !important; }
+.vms-status-led.desarmado, .vms-status-led.disarmed, .vms-status-led.warning { background: #fcee0a !important; box-shadow: 0 0 8px rgba(252, 238, 10, 0.95), 0 0 2px #fcee0a !important; }
+.vms-status-led.recording, .vms-status-led.gravando { background: #00f0ff !important; box-shadow: 0 0 8px rgba(0, 240, 255, 0.95), 0 0 2px #00f0ff !important; animation: vms-pulse 1.5s infinite; }
+
+/* Ubuntu Style Circular Action Buttons (Close & Expand) */
+.vms-slot-top-actions {
+  position: absolute; top: 0.4rem; right: 0.4rem; display: flex; align-items: center; gap: 0.35rem; z-index: 15;
+}
+.vms-slot-action-btn, .vms-slot-close-btn, .vms-ubuntu-close-btn {
+  width: 22px; height: 22px; border-radius: 50%;
+  background: rgba(20, 23, 28, 0.9); border: 1px solid rgba(255, 94, 58, 0.45);
+  color: var(--vms-neu-accent-orange); display: flex; align-items: center; justify-content: center;
+  cursor: pointer; z-index: 15; opacity: 0; pointer-events: none;
+  transition: opacity 0.2s ease, transform 0.18s cubic-bezier(0.4, 0, 0.2, 1), background 0.2s ease;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5); padding: 0;
+}
+.vms-slot:hover .vms-slot-action-btn,
+.vms-slot:hover .vms-slot-close-btn { opacity: 1; pointer-events: auto; }
+.vms-slot-action-btn:hover,
+.vms-slot-close-btn:hover, .vms-ubuntu-close-btn:hover {
+  background: var(--vms-neu-accent-orange); border-color: var(--vms-neu-accent-orange);
+  color: #ffffff; transform: scale(1.12); box-shadow: 0 0 12px rgba(255, 94, 58, 0.65);
+}
+.vms-slot-action-btn:hover svg {
+  stroke: #ffffff !important;
+}

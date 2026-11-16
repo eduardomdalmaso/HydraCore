@@ -1,0 +1,141 @@
+import { ref, computed, watch } from 'vue'
+import type { AnalyticFolderNode, AnalyticInstance } from '../types/marketplace'
+import { useMarketplace } from './useMarketplace'
+
+const STORAGE_FOLDERS_KEY = 'hydra_vms_analytic_folders'
+const STORAGE_INSTANCES_KEY = 'hydra_vms_analytic_instances'
+
+const loadStorage = <T>(key: string, fallback: T): T => {
+  try {
+    const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(key) : null
+    return raw ? JSON.parse(raw) : fallback
+  } catch {
+    return fallback
+  }
+}
+
+const allFolders = ref<AnalyticFolderNode[]>(loadStorage(STORAGE_FOLDERS_KEY, []))
+const rootInstances = ref<AnalyticInstance[]>(loadStorage(STORAGE_INSTANCES_KEY, []))
+
+const persistState = () => {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(STORAGE_FOLDERS_KEY, JSON.stringify(allFolders.value))
+      localStorage.setItem(STORAGE_INSTANCES_KEY, JSON.stringify(rootInstances.value))
+    }
+  } catch {}
+}
+
+watch([allFolders, rootInstances], persistState, { deep: true })
+
+export function getGloballyActiveAnalyticInstances(): AnalyticInstance[] {
+  const active: AnalyticInstance[] = []
+  rootInstances.value.forEach(i => { if (i.is_active) active.push(i) })
+  allFolders.value.forEach(f => {
+    f.instances.forEach(i => { if (i.is_active) active.push(i) })
+  })
+  return active
+}
+
+export function useDesktopAnalytics(pluginId: string) {
+  const { showToast } = useMarketplace()
+  const searchQuery = ref('')
+  const currentFolderId = ref<string | null>(null)
+  const selectedInstance = ref<AnalyticInstance | null>(null)
+  const isFolderModalOpen = ref(false), isWizardOpen = ref(false)
+  const draggedInstance = ref<AnalyticInstance | null>(null)
+
+  const pluginFolders = computed(() => allFolders.value.filter(f => f.plugin_id === pluginId))
+  const currentFolder = computed(() => pluginFolders.value.find(f => f.id === currentFolderId.value) || null)
+  const currentRootInstances = computed(() => rootInstances.value.filter(i => i.plugin_id === pluginId))
+
+  const totalInstances = computed(() => {
+    return currentRootInstances.value.length + pluginFolders.value.reduce((acc, f) => acc + f.instances.length, 0)
+  })
+
+  const displayedFolders = computed(() => {
+    return pluginFolders.value
+      .filter(f => !searchQuery.value || f.name.toLowerCase().includes(searchQuery.value.toLowerCase()))
+      .sort((a, b) => a.name.localeCompare(b.name))
+  })
+
+  const displayedInstances = computed(() => {
+    const q = searchQuery.value.toLowerCase()
+    const list = currentFolder.value ? currentFolder.value.instances : currentRootInstances.value
+    return list.filter(i => !q || i.name.toLowerCase().includes(q) || i.camera_name.toLowerCase().includes(q))
+  })
+
+  const handleDragStart = (inst: AnalyticInstance) => { draggedInstance.value = inst }
+
+  const handleDropOnFolder = (folderId: string) => {
+    if (!draggedInstance.value) return
+    const id = draggedInstance.value.id
+    rootInstances.value = rootInstances.value.filter(i => i.id !== id)
+    allFolders.value.forEach(f => { f.instances = f.instances.filter(i => i.id !== id) })
+    const dest = allFolders.value.find(f => f.id === folderId)
+    if (dest) {
+      dest.instances.push(draggedInstance.value)
+      showToast(`[ANALÍTICO] "${draggedInstance.value.name}" movido para "${dest.name}"`)
+    }
+    draggedInstance.value = null
+    persistState()
+  }
+
+  const handleCreateFolder = (name: string) => {
+    allFolders.value.push({ id: `fld-${Date.now()}`, name, plugin_id: pluginId, instances: [] })
+    isFolderModalOpen.value = false
+    persistState()
+    showToast(`[PASTA] "${name}" criada com sucesso`)
+  }
+
+  const handleCreateInstance = (inst: AnalyticInstance, targetFolderId?: string | null) => {
+    const target = targetFolderId || currentFolderId.value
+    if (target) {
+      const f = allFolders.value.find(x => x.id === target)
+      if (f) f.instances.push(inst); else rootInstances.value.push(inst)
+    } else {
+      rootInstances.value.push(inst)
+    }
+    isWizardOpen.value = false
+    selectedInstance.value = null
+    persistState()
+    showToast(`[APP ANALÍTICO] "${inst.name}" adicionado com sucesso`)
+  }
+
+  const handleTogglePauseInstance = (inst: AnalyticInstance) => {
+    inst.is_active = !inst.is_active
+    persistState()
+    showToast(inst.is_active ? `[RETOMADO] "${inst.name}" em execução` : `[PAUSADO] "${inst.name}" interrompido`)
+  }
+
+  const handleSaveInstance = (inst: AnalyticInstance) => {
+    const updateInList = (list: AnalyticInstance[]) => {
+      const idx = list.findIndex(x => x.id === inst.id)
+      if (idx !== -1) list[idx] = { ...inst }
+    }
+    updateInList(rootInstances.value)
+    allFolders.value.forEach(f => updateInList(f.instances))
+    if (selectedInstance.value?.id === inst.id) {
+      selectedInstance.value = { ...inst }
+    }
+    persistState()
+    showToast(`[SALVO] Analítico "${inst.name}" atualizado`)
+  }
+
+  const handleDeleteInstance = (id: string) => {
+    rootInstances.value = rootInstances.value.filter(i => i.id !== id)
+    allFolders.value.forEach(f => { f.instances = f.instances.filter(i => i.id !== id) })
+    if (selectedInstance.value?.id === id) selectedInstance.value = null
+    persistState()
+    showToast(`[EXCLUÍDO] Analítico removido com sucesso`)
+  }
+
+  return {
+    searchQuery, currentFolderId, currentFolder, selectedInstance, isFolderModalOpen, isWizardOpen,
+    totalInstances, displayedFolders, displayedInstances, pluginFolders, handleDragStart,
+    handleDropOnFolder, handleCreateFolder, handleCreateInstance, handleTogglePauseInstance,
+    handleSaveInstance, handleDeleteInstance
+  }
+}
+
+
