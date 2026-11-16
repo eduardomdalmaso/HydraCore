@@ -14,10 +14,21 @@ const emit = defineEmits<{ (e: 'select', cam: CameraStreamInfo): void }>()
 const canvasRef = ref<HTMLCanvasElement | null>(null)
 const useMjpeg = ref(false)
 const isImgLoading = ref(true)
-const { start: startWsp, stop: stopWsp, error: wspError, isPlaying, isConnecting } = useWSPCanvasPlayer(canvasRef)
+const {
+  start: startWsp,
+  stop: stopWsp,
+  error: wspError,
+  isPlaying,
+  isConnecting,
+  detectedCodec,
+  renderEngine
+} = useWSPCanvasPlayer(canvasRef)
 
+// Only fallback to MJPEG as an absolute last resort if WebSocket server is completely unreachable
 watch(wspError, (err) => {
-  if (err) useMjpeg.value = true
+  if (err && (err.includes('WebSocket init failed') || err.includes('WSP connection error'))) {
+    useMjpeg.value = true
+  }
 })
 
 const initStream = () => {
@@ -68,7 +79,7 @@ onMounted(initStream)
         </div>
         <div class="vms-flex-between">
           <span class="vms-text-mono vms-text-xs vms-text-dim" style="background: rgba(0,0,0,0.6); padding: 2px 4px; border-radius: 2px;">
-            [{{ useMjpeg ? 'MJPEG' : 'H264' }}]
+            [{{ useMjpeg ? 'MJPEG' : `${detectedCodec} · ${renderEngine.toUpperCase()}` }}]
           </span>
           <span class="vms-badge vms-badge-recording" style="font-size: 10px;">[REC]</span>
         </div>

@@ -17,7 +17,15 @@ const { getDetections } = useLiveDetections()
 const canvasRef = ref<HTMLCanvasElement | null>(null)
 const videoRef = ref<HTMLVideoElement | null>(null), isGearOpen = ref(false)
 const manualProfile = ref<"SUB" | "MAIN" | null>(null)
-const { start: startWsp, stop: stopWsp, isPlaying: isWspPlaying, isConnecting: isWspConnecting } = useWSPCanvasPlayer(canvasRef)
+const {
+  start: startWsp,
+  stop: stopWsp,
+  isPlaying: isWspPlaying,
+  isConnecting: isWspConnecting,
+  decoderType,
+  renderEngine,
+  detectedCodec
+} = useWSPCanvasPlayer(canvasRef)
 const { isLive, currentTime, isPlaying, playbackSpeed, activePlaybackCameraId, seekTrigger } = useTimelinePlayback()
 
 const effectiveProfile = computed<"SUB" | "MAIN">(() => {
@@ -159,7 +167,8 @@ onMounted(handleSeekOrSwitch)
               <span class="vms-text-mono vms-text-2xs" style="color: var(--vms-neu-accent-orange);">FLUXO: {{ effectiveProfile }}</span>
               <span class="vms-text-mono vms-text-2xs" style="color: #cbd5e1;">RESOLUCAO: {{ effectiveProfile === 'MAIN' ? ((slot.data as CameraStreamInfo).resolution || '2560x1440') : '640x360' }}</span>
               <span class="vms-text-mono vms-text-2xs" style="color: #00ff9d;">MEDIA FPS: {{ (slot.data as CameraStreamInfo).fps || 25 }} FPS</span>
-              <span class="vms-text-mono vms-text-2xs" style="color: var(--vms-neu-accent-orange);">DECODER: WebCodecs (HW)</span>
+              <span class="vms-text-mono vms-text-2xs" style="color: var(--vms-neu-accent-orange);">DECODER: WebCodecs ({{ decoderType.toUpperCase() }}) + {{ renderEngine.toUpperCase() }}</span>
+              <span class="vms-text-mono vms-text-2xs" style="color: #38bdf8;">CODEC: {{ detectedCodec }}</span>
               <span class="vms-text-mono vms-text-2xs" style="color: var(--vms-text-muted);">PROTOCOLO: {{ ((slot.data as CameraStreamInfo).protocol || 'RTSP').toUpperCase() }}</span>
             </div>
           </div>

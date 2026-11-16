@@ -11,7 +11,17 @@ export default defineConfig({
   },
   server: {
     port: 5173,
-    host: true
+    host: true,
+    headers: {
+      'Cross-Origin-Opener-Policy': 'same-origin',
+      'Cross-Origin-Embedder-Policy': 'require-corp'
+    }
+  },
+  preview: {
+    headers: {
+      'Cross-Origin-Opener-Policy': 'same-origin',
+      'Cross-Origin-Embedder-Policy': 'require-corp'
+    }
   },
   build: {
     chunkSizeWarningLimit: 600,
