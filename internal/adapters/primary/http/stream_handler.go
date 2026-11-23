@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 
 	"hydrastream/internal/adapters/primary/http/middleware"
@@ -162,8 +163,9 @@ func (h *Handler) handleIngestStats(w http.ResponseWriter, r *http.Request) {
 		stats = []*domain.IngestStats{}
 	}
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"count":   len(stats),
-		"streams": stats,
+		"count":      len(stats),
+		"goroutines": runtime.NumGoroutine(),
+		"streams":    stats,
 	})
 }
 
