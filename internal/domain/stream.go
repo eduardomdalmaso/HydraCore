@@ -38,14 +38,22 @@ type Stream struct {
 
 // IngestStats represents real-time stream ingestion telemetry.
 type IngestStats struct {
-	StreamID      string    `json:"stream_id"`
-	Status        string    `json:"status"` // "connecting", "streaming", "reconnecting", "stopped"
-	IngestFPS     float64   `json:"ingest_fps"`
-	BitrateKbps   float64   `json:"bitrate_kbps"`
-	FramesTotal   uint64    `json:"frames_total"`
-	BytesTotal    uint64    `json:"bytes_total"`
-	LastFrameTime time.Time `json:"last_frame_time"`
-	ErrorMsg      string    `json:"error_msg,omitempty"`
+	StreamID           string    `json:"stream_id"`
+	Status             string    `json:"status"` // "connecting", "streaming", "reconnecting", "stopped"
+	IngestFPS          float64   `json:"ingest_fps"`
+	DecodeFPS          float64   `json:"decode_fps"`
+	BitrateKbps        float64   `json:"bitrate_kbps"`
+	RTPPacketsTotal    uint64    `json:"rtp_packets_total"`
+	RTPBytesTotal      uint64    `json:"rtp_bytes_total"`
+	RTPLossTotal       uint64    `json:"rtp_loss_total"`
+	FramesTotal        uint64    `json:"frames_total"`
+	FramesDecodedTotal uint64    `json:"frames_decoded_total"`
+	BytesTotal         uint64    `json:"bytes_total"`
+	StartedAt          time.Time `json:"started_at"`
+	FirstFrameAt       time.Time `json:"first_frame_at,omitempty"`
+	TTFFMs             float64   `json:"ttff_ms,omitempty"`
+	LastFrameTime      time.Time `json:"last_frame_time"`
+	ErrorMsg           string    `json:"error_msg,omitempty"`
 }
 
 // SystemInfo represents basic non-sensitive engine status.
@@ -153,7 +161,7 @@ func (s *Stream) SetDefaults() {
 		s.CreatedAt = time.Now()
 	}
 	if s.Status == "" {
-		s.Status = "online"
+		s.Status = "connecting"
 	}
 	if s.Resolution == "" {
 		s.Resolution = "1920x1080"

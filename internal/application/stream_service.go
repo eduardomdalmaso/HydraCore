@@ -142,6 +142,13 @@ func (s *StreamService) GetIngestStats(ctx context.Context, streamID string) (*d
 	return s.ingestor.GetIngestStats(ctx, streamID)
 }
 
+func (s *StreamService) ListActiveIngests(ctx context.Context) ([]*domain.IngestStats, error) {
+	if s.ingestor == nil {
+		return nil, nil
+	}
+	return s.ingestor.ListActiveIngests(ctx)
+}
+
 func (s *StreamService) UpdateConsumer(ctx context.Context, streamID, analyticType string, targetFPS float64, format string) error {
 	if streamID == "" || analyticType == "" {
 		return domain.ErrInvalidStream

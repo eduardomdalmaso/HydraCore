@@ -3,6 +3,7 @@ package ingest
 import (
 	"context"
 	"log"
+	"os"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -43,9 +44,17 @@ func (r *RTSPIngestor) runWorker(ctx context.Context, sess *ingestSession, strea
 					}
 				}
 
-				goPumpCtx, cancelPump := context.WithTimeout(ctx, 10*time.Second)
-				r.runSyntheticPump(goPumpCtx, sess, stream.IngestFPS)
-				cancelPump()
+				if os.Getenv("HYDRA_DISABLE_SYNTHETIC_FALLBACK") == "1" {
+					select {
+					case <-ctx.Done():
+						return
+					case <-time.After(2 * time.Second):
+					}
+				} else {
+					goPumpCtx, cancelPump := context.WithTimeout(ctx, 10*time.Second)
+					r.runSyntheticPump(goPumpCtx, sess, stream.IngestFPS)
+					cancelPump()
+				}
 			} else {
 				loggedErr = false
 			}

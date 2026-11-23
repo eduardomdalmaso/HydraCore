@@ -36,6 +36,9 @@ func (r *RTSPIngestor) connectAndDemuxRTSP(ctx context.Context, sess *ingestSess
 	}
 
 	rawURI := fmt.Sprintf("rtsp://%s%s", u.Host, u.Path)
+	if u.RawQuery != "" {
+		rawURI += "?" + u.RawQuery
+	}
 	if rawURI == "" || rawURI == "rtsp://" {
 		rawURI = sess.sourceURL
 	}
@@ -46,21 +49,22 @@ func (r *RTSPIngestor) connectAndDemuxRTSP(ctx context.Context, sess *ingestSess
 		return fmt.Errorf("dial TCP %s failed: %w", host, err)
 	}
 	defer conn.Close()
+	_ = conn.SetDeadline(time.Now().Add(10 * time.Second))
 
 	sess.mu.Lock()
 	sess.conn = conn
 	sess.mu.Unlock()
 
-	br := bufio.NewReader(conn)
+	br := bufio.NewReaderSize(conn, 65536)
 	cseq := 1
 	var wwwAuthChallenge string
 
 	if err := sendRTSPRequest(conn, "OPTIONS", rawURI, cseq, ""); err != nil {
-		return err
+		return fmt.Errorf("OPTIONS send failed: %w", err)
 	}
 	optHeaders, _, err := readRTSPMessage(br)
 	if err != nil {
-		return err
+		return fmt.Errorf("OPTIONS read failed: %w", err)
 	}
 	if strings.Contains(optHeaders, "401 Unauthorized") {
 		wwwAuthChallenge = extractHeader(optHeaders, "WWW-Authenticate")
@@ -73,11 +77,11 @@ func (r *RTSPIngestor) connectAndDemuxRTSP(ctx context.Context, sess *ingestSess
 		describeExtra += authHeader + "\r\n"
 	}
 	if err := sendRTSPRequest(conn, "DESCRIBE", rawURI, cseq, describeExtra); err != nil {
-		return err
+		return fmt.Errorf("DESCRIBE send failed: %w", err)
 	}
 	descHeaders, descBody, err := readRTSPMessage(br)
 	if err != nil {
-		return err
+		return fmt.Errorf("DESCRIBE read failed: %w", err)
 	}
 
 	if strings.Contains(descHeaders, "401 Unauthorized") {
@@ -93,30 +97,34 @@ func (r *RTSPIngestor) connectAndDemuxRTSP(ctx context.Context, sess *ingestSess
 			describeExtra += authHeader + "\r\n"
 		}
 		if err := sendRTSPRequest(conn, "DESCRIBE", rawURI, cseq, describeExtra); err != nil {
-			return err
+			return fmt.Errorf("DESCRIBE auth send failed: %w", err)
 		}
 		descHeaders, descBody, err = readRTSPMessage(br)
 		if err != nil {
-			return err
+			return fmt.Errorf("DESCRIBE auth read failed: %w", err)
 		}
 		if strings.Contains(descHeaders, "401 Unauthorized") {
-			return fmt.Errorf("RTSP authentication failed (invalid user/password)")
+			return fmt.Errorf("RTSP authentication failed (401)")
 		}
+	}
+	if !strings.Contains(descHeaders, "200 OK") {
+		return fmt.Errorf("DESCRIBE error: %s", firstStatusLine(descHeaders))
 	}
 	cseq++
 
-	setupURL := extractVideoTrackURL(rawURI, string(descBody))
+	contentBase := extractHeaderRaw(descHeaders, "Content-Base")
+	setupURL := extractVideoTrackURL(rawURI, contentBase, string(descBody))
 	setupAuth := buildAuthHeader(wwwAuthChallenge, "SETUP", setupURL, username, password)
 	setupExtra := "Transport: RTP/AVP/TCP;unicast;interleaved=0-1\r\n"
 	if setupAuth != "" {
 		setupExtra += setupAuth + "\r\n"
 	}
 	if err := sendRTSPRequest(conn, "SETUP", setupURL, cseq, setupExtra); err != nil {
-		return err
+		return fmt.Errorf("SETUP send failed: %w", err)
 	}
 	setupHeaders, _, err := readRTSPMessage(br)
 	if err != nil {
-		return err
+		return fmt.Errorf("SETUP read failed: %w", err)
 	}
 	if strings.Contains(setupHeaders, "401 Unauthorized") {
 		wwwAuthChallenge = extractHeader(setupHeaders, "WWW-Authenticate")
@@ -127,17 +135,27 @@ func (r *RTSPIngestor) connectAndDemuxRTSP(ctx context.Context, sess *ingestSess
 			setupExtra += setupAuth + "\r\n"
 		}
 		if err := sendRTSPRequest(conn, "SETUP", setupURL, cseq, setupExtra); err != nil {
-			return err
+			return fmt.Errorf("SETUP auth send failed: %w", err)
 		}
 		setupHeaders, _, err = readRTSPMessage(br)
 		if err != nil {
-			return err
+			return fmt.Errorf("SETUP auth read failed: %w", err)
 		}
+	}
+	if !strings.Contains(setupHeaders, "200 OK") {
+		return fmt.Errorf("SETUP error: %s", firstStatusLine(setupHeaders))
 	}
 	sessionHdr := extractHeader(setupHeaders, "Session")
 	cseq++
 
-	playAuth := buildAuthHeader(wwwAuthChallenge, "PLAY", rawURI, username, password)
+	playURI := rawURI
+	if contentBase != "" {
+		playURI = strings.TrimSuffix(contentBase, "/")
+		if u.RawQuery != "" && !strings.Contains(playURI, "?") {
+			playURI = rawURI
+		}
+	}
+	playAuth := buildAuthHeader(wwwAuthChallenge, "PLAY", playURI, username, password)
 	playExtra := ""
 	if sessionHdr != "" {
 		playExtra += fmt.Sprintf("Session: %s\r\n", sessionHdr)
@@ -145,16 +163,16 @@ func (r *RTSPIngestor) connectAndDemuxRTSP(ctx context.Context, sess *ingestSess
 	if playAuth != "" {
 		playExtra += playAuth + "\r\n"
 	}
-	if err := sendRTSPRequest(conn, "PLAY", rawURI, cseq, playExtra); err != nil {
-		return err
+	if err := sendRTSPRequest(conn, "PLAY", playURI, cseq, playExtra); err != nil {
+		return fmt.Errorf("PLAY send failed: %w", err)
 	}
 	playHeaders, _, err := readRTSPMessage(br)
 	if err != nil {
-		return err
+		return fmt.Errorf("PLAY read failed: %w", err)
 	}
 	if strings.Contains(playHeaders, "401 Unauthorized") {
 		wwwAuthChallenge = extractHeader(playHeaders, "WWW-Authenticate")
-		playAuth = buildAuthHeader(wwwAuthChallenge, "PLAY", rawURI, username, password)
+		playAuth = buildAuthHeader(wwwAuthChallenge, "PLAY", playURI, username, password)
 		cseq++
 		playExtra = ""
 		if sessionHdr != "" {
@@ -163,19 +181,20 @@ func (r *RTSPIngestor) connectAndDemuxRTSP(ctx context.Context, sess *ingestSess
 		if playAuth != "" {
 			playExtra += playAuth + "\r\n"
 		}
-		if err := sendRTSPRequest(conn, "PLAY", rawURI, cseq, playExtra); err != nil {
-			return err
+		if err := sendRTSPRequest(conn, "PLAY", playURI, cseq, playExtra); err != nil {
+			return fmt.Errorf("PLAY auth send failed: %w", err)
 		}
-		_, _, err = readRTSPMessage(br)
+		playHeaders, _, err = readRTSPMessage(br)
 		if err != nil {
-			return err
+			return fmt.Errorf("PLAY auth read failed: %w", err)
 		}
 	}
+	if !strings.Contains(playHeaders, "200 OK") {
+		return fmt.Errorf("PLAY error: %s", firstStatusLine(playHeaders))
+	}
+	cseq++
+	_ = conn.SetDeadline(time.Time{})
 
-	sess.mu.Lock()
-	sess.status = "streaming"
-	sess.err = nil
-	sess.mu.Unlock()
 	log.Printf("[HydraStream RTSP] Stream '%s' established active TCP session with %s.", sess.streamID, host)
 
 	r.mu.RLock()
@@ -186,25 +205,39 @@ func (r *RTSPIngestor) connectAndDemuxRTSP(ctx context.Context, sess *ingestSess
 	}
 
 	buf := make([]byte, 65536)
+	var lastSeq uint16
+	hasSeq := false
+	lastKeepalive := time.Now()
+
 	for {
 		select {
 		case <-ctx.Done():
 			return nil
 		default:
+			if time.Since(lastKeepalive) >= 25*time.Second {
+				keepExtra := ""
+				if sessionHdr != "" {
+					keepExtra = fmt.Sprintf("Session: %s\r\n", sessionHdr)
+				}
+				_ = sendRTSPRequest(conn, "OPTIONS", rawURI, cseq, keepExtra)
+				cseq++
+				lastKeepalive = time.Now()
+			}
+			_ = conn.SetReadDeadline(time.Now().Add(15 * time.Second))
 			prefix, err := br.ReadByte()
 			if err != nil {
-				return err
+				return fmt.Errorf("RTP read failed: %w", err)
 			}
 
 			if prefix == '$' {
-				_, err := br.ReadByte()
+				ch, err := br.ReadByte()
 				if err != nil {
-					return err
+					return fmt.Errorf("RTP channel read failed: %w", err)
 				}
 
 				var payloadLen uint16
 				if err := binary.Read(br, binary.BigEndian, &payloadLen); err != nil {
-					return err
+					return fmt.Errorf("RTP length read failed: %w", err)
 				}
 
 				if int(payloadLen) > len(buf) {
@@ -212,14 +245,44 @@ func (r *RTSPIngestor) connectAndDemuxRTSP(ctx context.Context, sess *ingestSess
 				}
 
 				if _, err := io.ReadFull(br, buf[:payloadLen]); err != nil {
-					return err
+					return fmt.Errorf("RTP payload read failed: %w", err)
 				}
 
-				atomic.AddUint64(&sess.framesTotal, 1)
-				atomic.AddUint64(&sess.bytesTotal, uint64(payloadLen))
-				sess.mu.Lock()
-				sess.lastFrameTime = time.Now()
-				sess.mu.Unlock()
+				// Process RTP video packets on interleaved channel 0 (skip RTCP on odd channels)
+				if ch == 0 && payloadLen >= 12 {
+					atomic.AddUint64(&sess.rtpPacketsTotal, 1)
+					atomic.AddUint64(&sess.bytesTotal, uint64(payloadLen))
+
+					seq := binary.BigEndian.Uint16(buf[2:4])
+					if hasSeq {
+						diff := uint16(seq - lastSeq)
+						if diff > 1 && diff < 1000 {
+							atomic.AddUint64(&sess.rtpLossTotal, uint64(diff-1))
+						}
+					}
+					lastSeq = seq
+					hasSeq = true
+
+					marker := (buf[1] & 0x80) != 0
+					if marker {
+						atomic.AddUint64(&sess.framesTotal, 1)
+					}
+
+					now := time.Now()
+					sess.mu.Lock()
+					if sess.firstFrameAt.IsZero() {
+						sess.firstFrameAt = now
+						sess.ttffMs = float64(now.Sub(sess.startedAt).Microseconds()) / 1000.0
+					}
+					sess.status = "streaming"
+					sess.err = nil
+					sess.lastFrameTime = now
+					sess.mu.Unlock()
+				}
+			} else {
+				// Consume interleaved RTSP response text (e.g., keepalive 200 OK) cleanly
+				_ = br.UnreadByte()
+				_, _, _ = readRTSPMessage(br)
 			}
 		}
 	}
@@ -262,9 +325,36 @@ func readRTSPMessage(br *bufio.Reader) (headers string, body []byte, err error) 
 	return headers, body, nil
 }
 
-func extractVideoTrackURL(rawURI string, sdpBody string) string {
+func firstStatusLine(headers string) string {
+	for _, l := range strings.Split(headers, "\r\n") {
+		if strings.TrimSpace(l) != "" {
+			return strings.TrimSpace(l)
+		}
+	}
+	return "empty response"
+}
+
+func extractHeaderRaw(resp, headerName string) string {
+	lines := strings.Split(resp, "\r\n")
+	prefix := strings.ToLower(headerName) + ":"
+	for _, l := range lines {
+		if strings.HasPrefix(strings.ToLower(l), prefix) {
+			return strings.TrimSpace(l[len(prefix):])
+		}
+	}
+	return ""
+}
+
+func extractVideoTrackURL(rawURI, contentBase, sdpBody string) string {
+	base := rawURI
+	if contentBase != "" {
+		base = contentBase
+	}
 	if sdpBody == "" {
-		return fmt.Sprintf("%s/track1", strings.TrimSuffix(rawURI, "/"))
+		if strings.Contains(base, "?") {
+			return strings.TrimSuffix(base, "/") + "/track1"
+		}
+		return fmt.Sprintf("%s/track1", strings.TrimSuffix(base, "/"))
 	}
 
 	lines := strings.Split(sdpBody, "\n")
@@ -286,11 +376,11 @@ func extractVideoTrackURL(rawURI string, sdpBody string) string {
 			if track == "*" || track == "" {
 				return rawURI
 			}
-			return fmt.Sprintf("%s/%s", strings.TrimSuffix(rawURI, "/"), strings.TrimPrefix(track, "/"))
+			return fmt.Sprintf("%s/%s", strings.TrimSuffix(base, "/"), strings.TrimPrefix(track, "/"))
 		}
 	}
 
-	return fmt.Sprintf("%s/track1", strings.TrimSuffix(rawURI, "/"))
+	return fmt.Sprintf("%s/track1", strings.TrimSuffix(base, "/"))
 }
 
 func extractHeader(resp, headerName string) string {

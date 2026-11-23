@@ -2,6 +2,7 @@ package memory
 
 import (
 	"context"
+	"os"
 	"sort"
 	"strings"
 	"sync"
@@ -23,6 +24,10 @@ func NewStreamRepository() *StreamRepository {
 	repo := &StreamRepository{
 		streams:   make(map[string]*domain.Stream),
 		startTime: time.Now(),
+	}
+
+	if os.Getenv("HYDRA_DISABLE_SYNTHETIC_DEMO") == "1" {
+		return repo
 	}
 
 	// Seed sample stream

@@ -58,6 +58,12 @@ snapshots/
 
 # IDE & System Files
 .idea/
+
+# Local Benchmark Artifacts & Camera Lists (DO NOT COMMIT)
+benchmark_results/
+benchmark_mediamtx_vs_hydrastream.*
+vezha_rtsp_*.txt
+ecosystem.config.js
 .vscode/
 .DS_Store
 

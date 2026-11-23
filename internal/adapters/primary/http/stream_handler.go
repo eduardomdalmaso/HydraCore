@@ -147,6 +147,26 @@ func (h *Handler) handleStreams(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (h *Handler) handleIngestStats(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method != http.MethodGet {
+		http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
+		return
+	}
+	stats, err := h.useCase.ListActiveIngests(r.Context())
+	if err != nil {
+		http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err.Error()), http.StatusInternalServerError)
+		return
+	}
+	if stats == nil {
+		stats = []*domain.IngestStats{}
+	}
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"count":   len(stats),
+		"streams": stats,
+	})
+}
+
 func (h *Handler) handleStreamByID(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	path := strings.TrimPrefix(r.URL.Path, "/api/v1/streams/")

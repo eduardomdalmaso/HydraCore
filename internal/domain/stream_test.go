@@ -27,8 +27,8 @@ func TestStreamSetDefaults(t *testing.T) {
 	}
 	st.SetDefaults()
 
-	if st.Status != "online" {
-		t.Errorf("expected status 'online', got '%s'", st.Status)
+	if st.Status != "connecting" {
+		t.Errorf("expected status 'connecting', got '%s'", st.Status)
 	}
 	if st.Resolution != "1920x1080" {
 		t.Errorf("expected resolution '1920x1080', got '%s'", st.Resolution)

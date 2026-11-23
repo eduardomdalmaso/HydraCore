@@ -13,16 +13,22 @@ import (
 )
 
 type ingestSession struct {
-	streamID      string
-	sourceURL     string
-	cancel        context.CancelFunc
-	status        string
-	framesTotal   uint64
-	bytesTotal    uint64
-	lastFrameTime time.Time
-	mu            sync.RWMutex
-	conn          net.Conn
-	err           error
+	streamID           string
+	sourceURL          string
+	cancel             context.CancelFunc
+	status             string
+	rtpPacketsTotal    uint64
+	rtpLossTotal       uint64
+	framesTotal        uint64
+	framesDecodedTotal uint64
+	bytesTotal         uint64
+	startedAt          time.Time
+	firstFrameAt       time.Time
+	ttffMs             float64
+	lastFrameTime      time.Time
+	mu                 sync.RWMutex
+	conn               net.Conn
+	err                error
 }
 
 // StreamEventPublisher defines the callback to publish CloudEvents to NATS.
@@ -62,12 +68,14 @@ func (r *RTSPIngestor) StartIngest(ctx context.Context, stream *domain.Stream) e
 	}
 
 	sessionCtx, cancel := context.WithCancel(context.Background())
+	now := time.Now()
 	sess := &ingestSession{
 		streamID:      stream.StreamID,
 		sourceURL:     stream.SourceURL,
 		cancel:        cancel,
 		status:        "connecting",
-		lastFrameTime: time.Now(),
+		startedAt:     now,
+		lastFrameTime: now,
 	}
 	r.sessions[stream.StreamID] = sess
 
@@ -112,10 +120,21 @@ func (r *RTSPIngestor) GetIngestStats(ctx context.Context, streamID string) (*do
 	sess.mu.RLock()
 	defer sess.mu.RUnlock()
 
-	elapsed := time.Since(sess.lastFrameTime).Seconds()
-	fps := 30.0
-	if elapsed > 3.0 && sess.status != "streaming" {
-		fps = 0.0
+	rtpPackets := atomic.LoadUint64(&sess.rtpPacketsTotal)
+	rtpLoss := atomic.LoadUint64(&sess.rtpLossTotal)
+	frames := atomic.LoadUint64(&sess.framesTotal)
+	framesDecoded := atomic.LoadUint64(&sess.framesDecodedTotal)
+	bytes := atomic.LoadUint64(&sess.bytesTotal)
+	elapsed := time.Since(sess.startedAt).Seconds()
+	sinceLast := time.Since(sess.lastFrameTime).Seconds()
+
+	var fps, decodeFPS, bitrateKbps float64
+	if elapsed > 0 && (frames > 0 || rtpPackets > 0) {
+		if sinceLast <= 5.0 || sess.status == "streaming" {
+			fps = float64(frames) / elapsed
+			decodeFPS = float64(framesDecoded) / elapsed
+		}
+		bitrateKbps = (float64(bytes) * 8.0 / 1024.0) / elapsed
 	}
 
 	var errMsg string
@@ -124,14 +143,22 @@ func (r *RTSPIngestor) GetIngestStats(ctx context.Context, streamID string) (*do
 	}
 
 	return &domain.IngestStats{
-		StreamID:      sess.streamID,
-		Status:        sess.status,
-		IngestFPS:     fps,
-		BitrateKbps:   math.Max(1200.0, float64(atomic.LoadUint64(&sess.bytesTotal))*8.0/1024.0/math.Max(1.0, elapsed)),
-		FramesTotal:   atomic.LoadUint64(&sess.framesTotal),
-		BytesTotal:    atomic.LoadUint64(&sess.bytesTotal),
-		LastFrameTime: sess.lastFrameTime,
-		ErrorMsg:      errMsg,
+		StreamID:           sess.streamID,
+		Status:             sess.status,
+		IngestFPS:          math.Round(fps*100) / 100,
+		DecodeFPS:          math.Round(decodeFPS*100) / 100,
+		BitrateKbps:        math.Round(bitrateKbps*100) / 100,
+		RTPPacketsTotal:    rtpPackets,
+		RTPBytesTotal:      bytes,
+		RTPLossTotal:       rtpLoss,
+		FramesTotal:        frames,
+		FramesDecodedTotal: framesDecoded,
+		BytesTotal:         bytes,
+		StartedAt:          sess.startedAt,
+		FirstFrameAt:       sess.firstFrameAt,
+		TTFFMs:             sess.ttffMs,
+		LastFrameTime:      sess.lastFrameTime,
+		ErrorMsg:           errMsg,
 	}, nil
 }
 

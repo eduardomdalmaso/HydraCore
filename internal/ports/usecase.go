@@ -19,6 +19,7 @@ type StreamUseCase interface {
 	GetSystemInfo(ctx context.Context) (*domain.SystemInfo, error)
 	GetControlPanelTelemetry(ctx context.Context) (*domain.ControlPanelTelemetry, error)
 	GetIngestStats(ctx context.Context, streamID string) (*domain.IngestStats, error)
+	ListActiveIngests(ctx context.Context) ([]*domain.IngestStats, error)
 	InjectChaos(ctx context.Context, injection *domain.ChaosInjection) (*domain.ChaosResult, error)
 	ResetChaos(ctx context.Context) error
 
