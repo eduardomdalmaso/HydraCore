@@ -68,3 +68,7 @@ ecosystem.config.cjs
 !ecosystem.config.example.cjs
 
 
+vezha_api_documentation.md
+vezha_api_documentation.md:Zone.Identifier
+vezha_rtsp_funcionais.txt
+vezha_rtsp_simultaneas.txt

@@ -303,10 +303,6 @@ func md5Sum(data string) [16]byte {
 	return md5.Sum([]byte(data))
 }
 
-func md5Wrapper(b []byte) [16]byte {
-	return md5.Sum(b)
-}
-
 func extractDigestParam(header, key string) string {
 	re := regexp.MustCompile(fmt.Sprintf(`%s="?([^",]+)"?`, key))
 	m := re.FindStringSubmatch(header)
