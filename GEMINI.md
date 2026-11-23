@@ -1,289 +1,186 @@
-# HydraCore Project Guidelines (GEMINI.md)
+# HydraStream & HydraForge Project Guidelines (GEMINI.md)
 
-Monorepo **HydraCore** unificado via `go.work` com módulos DDD + Hexagonal independentes em `modules/hydravms` (Control Plane) e `modules/hydrastream` (Data Plane).
-
-Este documento define a arquitetura de software, **protocolos de ingestão de câmeras (ONVIF WS-Discovery, RTSP, RTMP)**, **motor de geração de relatórios (PDF, Excel, CSV) & consultas analíticas otimizadas**, **regras de segurança e acesso estritamente via Token**, **escalabilidade em cluster distribuído**, **comunicação inter-servidores (gRPC / NATS / WebRTC)**, **especificação REST API & Swagger/OpenAPI 3.0**, **padrões visuais de UI/UX das páginas**, padrão Medallion de dados, **arquitetura de banco de dados relacional SQL (PostgreSQL / SQLite WAL)**, pipelines de IA com **SAHI**, **Inferência Acionada por Movimento (Motion-Gated)**, **modos de gravação**, política de armazenamento MinIO S3, isolamento multi-tenant, **autopreservação de disco (Anti-Crash Guard)**, exportação ultrarrápida e protocolo de auto-reparo do ecossistema **HydraVMS** (Video Management System, Orquestrador de Eventos de IA e Gravação).
+Este documento define a arquitetura, design system, catálogo de skills, pipelines de dados/IA, rotinas de testes, validação rigorosa de parâmetros e protocolo de auto-reparo do ecossistema **HydraStream** (Control Plane & Ingestão Zero-Copy) e **HydraForge** (Estúdio de Treinamento YOLO).
 
 ---
 
 ## 0. Arquitetura Split-Plane & Limites Invioláveis do Ecossistema
 
-O ecossistema Hydra segue estritamente a divisão em 4 planos desacoplados:
+O ecossistema Hydra opera em 4 planos com responsabilidades atômicas:
+
+1. **Data Plane / Motor de Mídia (HydraStream :8080 & Motor Rust hydra-engine :8085):** Exclusivo para descoberta ONVIF WS-Discovery, probing, ingestão RTSP TCP RFC 2326, snapshots e streaming WSP (WebSocket Stream Protocol) binário com aceleração NVENC dinâmica para H.265 em GPUs NVIDIA, além de buffer Zero-Copy `/dev/shm` e CUDA IPC.
+2. **Control Plane (HydraVMS :8083):** Exclusivo para PostgreSQL (câmeras, pastas, usuários, RBAC, layouts, perfis de gravação e workflows). **PROIBIDO** conter processamento de vídeo ou FFmpeg.
+3. **Analytics Plane (HydraForge :8081):** Treinamento YOLO, autotuning e compilação TensorRT na RTX 5090.
+4. **Curation Plane (HydraVault :8082):** Curadoria e auto-rotulagem de datasets com SAM 2.
+
+---
+
+## 1. Filosofia de Engenharia e Estrutura Arquitetural
+
+O projeto segue estritamente a **Arquitetura Hexagonal (Ports & Adapters)** combinada com **Domain-Driven Design (DDD)**:
 
 ```text
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│ CONTROL PLANE: HydraVMS (:8083)                                                 │
-│ • PostgreSQL 15+, RBAC, Tokens JWT, Gravação, Pastas, Workflows & UI Web (:5173)│
-└────────────────────────────────────────┬────────────────────────────────────────┘
-                                         │ Chamadas REST / Sincronização
-                                         ▼
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│ DATA PLANE (MOTOR DE MÍDIA): HydraStream (:8080 & MediaMTX :8554/:8889)         │
-│ • Descoberta ONVIF WS-Discovery & Probing (/api/v1/onvif/*)                     │
-│ • Ingestão RFC 2326 TCP, MediaMTX Relay (WebRTC WHEP, HLS, RTSP) & Snapshots    │
-│ • Zero-Copy Ring Buffer (/dev/shm) & CUDA IPC VRAM na RTX 5090                  │
-└──────────────────┬─────────────────────────────────────────────┬────────────────┘
-                   │ /dev/shm (Zero-Copy)                        │ Datasets Curados
-                   ▼                                             ▼
-┌──────────────────────────────────────┐     ┌────────────────────────────────────┐
-│ ANALYTICS PLANE: HydraForge (:8081)  │     │ CURATION PLANE: HydraVault (:8082) │
-│ • Treinamento YOLO na RTX 5090       │     │ • Curadoria, SAM 2 & Auto-Labeling │
-│ • TensorRT .engine / Exportação      │     │ • Exportação versionada data.yaml  │
-└──────────────────────────────────────┘     └────────────────────────────────────┘
+hydrastream
+├── cmd/                          # Entrypoints principais dos binários
+├── internal/
+│   ├── domain/                   # Entidades puras e regras de negócio (ZERO imports de infra/HTTP)
+│   ├── ports/                    # Interfaces de entrada (Driving) e saída (Driven)
+│   ├── application/              # Casos de uso e orquestração de serviços
+│   └── adapters/
+│       ├── primary/http/         # Controladores REST, Telemetria e WebSockets
+│       └── secondary/
+│           ├── ingest/           # Adaptador RFC 2326 RTSP / TCP RTP
+│           ├── gpu/              # Detector de hardware GPU (NVIDIA RTX 5090 / CUDA 13.3)
+│           ├── logger/           # Ring Buffer em memória para logs e erros
+│           ├── memory/           # Repositório thread-safe em memória
+│           ├── nats/             # Publicador NATS JetStream
+│           ├── onvif/            # Scanner WS-Discovery e SOAP ONVIF
+│           ├── vmd/              # Detector de movimento por grade de células
+│           └── shm/              # Gerenciador de memória compartilhada POSIX (/dev/shm)
+├── crates/hydra-engine/          # Motor Data Plane em Rust (Lock-free Ring Buffer & Governor)
+└── sdk/python/                   # SDK Python Zero-Copy para analíticos
 ```
 
-### ⚠️ Regras Inquebráveis de Limites Arquiteturais (Inviolable Rules):
-1. **HydraVMS NUNCA processa mídia diretamente:** É estritamente proibido importar codecs de vídeo, executar subprocessos `ffmpeg`/`ffprobe` ou abrir sockets UDP de descoberta de câmeras dentro do HydraVMS. Toda descoberta, captura de snapshots e entrega de streaming DEVE ser delegada ao **HydraStream**.
-2. **HydraStream é o único ponto de contato de vídeo com as câmeras:** O HydraStream centraliza a ingestão TCP RFC 2326 e multiplexa para downstream (IA e Web Clients), eliminando conexões redundantes contra câmeras físicas.
-3. **Frontend VMS consome mídia diretamente do HydraStream:** Tags de vídeo, WebRTC WHEP e snapshots no frontend consomem as portas do HydraStream (`:8080` e `:8889`), mantendo a API do HydraVMS (`:8083`) leve e focada exclusivamente no Control Plane.
+### Regras Inquebráveis de Backend:
+1. **Pureza do Domínio:** O pacote `internal/domain/` **NUNCA** deve importar pacotes de infraestrutura como `net/http`, `database/sql` ou bibliotecas externas de rede.
+2. **Concorrência Segura:** Toda sessão de stream ou worker é isolada com `context.WithCancel` e sincronizada via ponteiros atômicos (`sync/atomic`) e `sync.RWMutex`.
+3. **Hardware Acceleration:** Prioridade máxima para Zero-Copy (`/dev/shm` no CPU e `CUDA IPC` na VRAM da GPU NVIDIA).
+4. **Modularidade e Limite de Linhas Backend (Go & Rust):** Arquivos de implementação Go e Rust devem ser mantidos enxutos e modulares (meta de <= 200-250 linhas, teto absoluto de 350 linhas). Módulos que crescem devem ser decompostos em submódulos coesos (ex: `rtmp/`, `transport/`), e testes extensos extraídos para diretórios `tests/` ou arquivos `_test.go`.
 
 ---
 
-## 1. Protocolos de Ingestão de Câmeras (ONVIF, RTSP & RTMP)
+## 2. Design System & Estilo Visual (Clean Slate Dark / High-Tech HUD)
 
-As diretrizes detalhadas encontram-se em [`.agents/skills/vms-camera-ingest/SKILL.md`](file:///home/hades/Documents/HydraVMS/.agents/skills/vms-camera-ingest/SKILL.md):
+O frontend adota o design system oficial Clean Slate Dark (espelhado do **HydraVMS**):
 
-```text
-[ Câmeras IP ONVIF ] ──► [ WS-Discovery Probe ] ──► Auto-Fetch Main/Sub RTSP URIs
-[ Câmeras RTSP ]     ──► [ HydraStream Engine ] ──► TCP Interleaved Zero-Copy RingBuffer
-[ Drones / OBS / App]──► [ RTMP Server :1935 ]  ──► Validação de Stream Key & Pipeline
-```
+### Tokens e Cores Primárias:
+- **Fundo Principal & Superfícies:** `#07080c` (Main Background), `#0e1117` (Surface), `#14171d` (Elevated Cards).
+- **Cores de Ação e Destaque:**
+  - Primário / Ações: `#ff5e3a` (Laranja HUD / Ações Primárias)
+  - Bordas Sutis: `rgba(255, 255, 255, 0.06)`
+  - Textos Principais: `#ffffff` (Títulos & Dados), `#8b94a0` (Muted / Labels)
+- **Status LEDs Universais (Neon Dots sem texto ao lado):**
+  - Online / Ingestão Ativa: `#00ff9d` (Verde neon com glow)
+  - Fan-Out / Gravação: `#00f0ff` (Azul neon pulsante)
+  - Alerta / Buffer Alto: `#fcee0a` (Amarelo cyber neon)
+  - Queda / Erro: `#ff003c` (Vermelho magenta neon)
+- **Tipografia Modular:** Google Fonts (`Roboto` / `Inter` para interface e `JetBrains Mono` para métricas, IDs, offsets e FPS).
 
-### Detalhes dos Protocolos Suportados:
-1. **ONVIF (Profile S/T/G):**
-   - **Auto-Descoberta:** Envio de probe multicast UDP para `239.255.255.250:3702` para listar câmeras na rede local sem digitação manual de IPs.
-   - **Extração Automática:** Obtém perfis Main (1080p/4K @ 30 FPS) e Sub-stream (480p @ 10 FPS) com digest authentication e controle PTZ.
-2. **RTSP (RFC 2326):**
-   - Ingestão contínua em modo **TCP Interleaved RTP** via HydraStream, eliminando artefatos e perda de pacotes de redes instáveis.
-3. **RTMP Push Server (Porta 1935):**
-   - Permite que drones de segurança, bodycams ou encoders móveis transmitam diretamente para o HydraVMS através de `rtmp://vms.domain.com/live/{tenant_id}/{camera_id}?key={stream_key}` com autenticação instantânea de chave.
-
----
-
-## 2. Motor de Relatórios & Consultas Analíticas Otimizadas
-
-As diretrizes detalhadas encontram-se em [`.agents/skills/vms-reports-analytics/SKILL.md`](file:///home/hades/Documents/HydraVMS/.agents/skills/vms-reports-analytics/SKILL.md):
-
-### 2.1. Geração Assíncrona de Relatórios:
-- **PDF Executivo / Forense:** Relatórios completos com gráficos de tendências, tabelas de alarmes, thumbnails de snapshots embutidos e links auditáveis para download de clipes MP4 de evidência.
-- **Excel (XLSX) & CSV Streaming:** Exportação em lote de centenas de milhares de linhas utilizando streaming com `excelize` em Go, consumindo menos de 20MB de RAM.
-- **Armazenamento Seguro:** Arquivos gerados são salvos no bucket MinIO `hydravms-reports/` e disponibilizados via Presigned URLs com expiração de 24 horas.
-
-### 2.2. Consultas Analíticas Otimizadas (< 10ms):
-- **Materialized Views:** Rollups de agregação horária e diária (`mv_hourly_event_stats`) pré-computados para carregamento instantâneo de dashboards.
-- **Índices Parciais Seletivos:** Índices dedicados para eventos não reconhecidos (`status = 'new'`) e eventos de alta severidade (`severity = 'critical'`).
-- **Métricas de Performance Operacional:** Cálculo automático de MTTA (*Mean Time to Acknowledge*), MTTR (*Mean Time to Resolve*), ranking de câmeras com mais incidentes e taxa de falsos positivos.
+### ⚠️ Regras Estritas de Frontend & UI Standards:
+- **Modularidade & Coesão:** Componentes `.vue`/`.jsx` até 150 linhas (teto de 200 linhas para views complexas), composables/lógica `.ts` até 100-120 linhas; dicionários `locales/` e `types/` livres.
+- **Proibição Absoluta de Emojis em Listas e Dropdowns:** Nunca usar emojis dentro de `<select>`, `<option>`, dropdowns, tabelas ou listas em nenhum projeto.
+- **Nomenclatura Concisa & HUD:** Rótulos atômicos (`INGESTAO`, `CONSUMIDORES`, `CODEC`, `RESOLUCAO`, `FPS`, `BITRATE`, `SHM BUFFER`).
+- **Botões de Confirmação:** O texto do botão de confirmação e salvamento é estritamente **`SALVAR`**.
 
 ---
 
-## 3. Acesso à API Estritamente via Token (Token-Only Enforcement)
+## 3. Catálogo de Skills & Ecossistema Ultralytics
 
-As diretrizes detalhadas encontram-se em [`.agents/rules/security.md`](file:///home/hades/Documents/HydraVMS/.agents/rules/security.md):
-
-- **Proibição de Rotas Públicas Anônimas:** Todos os endpoints REST (`/api/v1/*`), feeds WebRTC e conexões WebSocket (`/ws/v1/*`) EXIGEM autenticação obrigatória via Token.
-- **Única Rota Sem Token:** `POST /api/v1/auth/login` (emissão inicial de token).
-- **Tipos de Tokens Aceitos:** User JWT Bearer Token e API Keys / Service Tokens (M2M) com escopos e expiração.
-
----
-
-## 4. Escalabilidade em Cluster & Comunicação Inter-Servidores
-
-As diretrizes detalhadas encontram-se em [`.agents/skills/vms-clustering/SKILL.md`](file:///home/hades/Documents/HydraVMS/.agents/skills/vms-clustering/SKILL.md):
-
-- **Topologia do Cluster:** Control Plane Nodes (API/Auth), Edge Ingest Nodes (RTSP/ONVIF/RTMP), GPU Worker Nodes (YOLO/SAHI na RTX 5090) e MinIO S3 Distributed Pool.
-- **Matriz de Comunicação:** POSIX `/dev/shm` local, **gRPC (HTTP/2 + Protobuf)** entre servidores, **NATS JetStream Mesh** para eventos (> 10M msgs/s) e **WebRTC (WHIP/WHEP)** para clientes web (< 200ms).
-
----
-
-## 5. API REST & Documentação Swagger / OpenAPI 3.0
-
-As diretrizes detalhadas encontram-se em [`.agents/skills/vms-api-rest/SKILL.md`](file:///home/hades/Documents/HydraVMS/.agents/skills/vms-api-rest/SKILL.md) e a especificação completa em [`api/openapi.yaml`](file:///home/hades/Documents/HydraVMS/api/openapi.yaml):
-
-- **Swagger UI Interativo:** `GET /swagger/index.html` embutido no binário Go.
-- **Padrão de Resposta de Erro:** RFC 7807 Problem Details.
-
----
-
-## 6. Padrões Visuais de UI/UX das Páginas (Clean Slate Dark)
-
-As diretrizes detalhadas encontram-se em [`.agents/rules/ui-standards.md`](file:///home/hades/Documents/HydraVMS/.agents/rules/ui-standards.md):
-
-- **Tokens de Cores:** Fundo `#0f172a`, Superfícies `#1e293b`, Inputs `#334155`, Primário `#3b82f6`, Sucesso `#10b981`, Alerta `#f59e0b`, Perigo `#ef4444`.
-- **Tipografia:** `'Inter'` / `'Geist'` para textos/títulos e `'JetBrains Mono'` para números, FPS e timestamps.
-- **Header:** 56px com Breadcrumb, Telemetria compacta e Perfil.
-- **Sidebar:** 240px (expandida) / 64px (recolhida) com indicador de rota ativa com borda azul.
-- **Modularidade & Coesão:** Componentes `.vue` até 150 linhas (teto de 200 linhas para telas complexas), composables e lógica `.ts` até 100-120 linhas; dicionários (`locales/*.ts`) e definições de tipos (`types/*.ts`) isentos de limite rígido por serem declarativos.
-- **Nomenclatura Concisa & Botões:** Rótulos atômicos (`GRAVANDO`, `ANALITICOS`, `CODEC`, `COMPRESSAO`, `RESOLUCAO`, `FPS`) e texto de botão de confirmação sempre **`SALVAR`** (detalhes em [`.agents/rules/ui-telemetry-naming.md`](.agents/rules/ui-telemetry-naming.md)).
-
----
-
-## 7. Arquitetura de Banco de Dados Relacional SQL (PostgreSQL 15+ / SQLite WAL)
-
-Consulte o DDL completo em [`migrations/000001_initial_schema.up.sql`](file:///home/hades/Documents/HydraVMS/migrations/000001_initial_schema.up.sql):
-
-- **Tenants, RBAC & Tokens:** `tenants`, `users`, `user_sessions`, `api_tokens`.
-- **Câmeras (ONVIF/RTSP/RTMP):** `cameras`, `camera_recording_profiles`, `camera_zones`.
-- **IA & Alarmes:** `ai_rules`, `events` (Gold Layer), `event_audit_actions`.
-- **Gravações, Relatórios & Storage:** `recordings`, `report_jobs`, `storage_pools`, `storage_purge_logs`, `video_exports`.
-- **Auditoria:** `audit_logs`.
-
----
-
-## 8. Pipeline de IA com SAHI & Motion-Gated Inference
-
-1. **Motion-Gated Pre-Filter (CPU):** Compara pixels em grayscale 160x120 (< 0.1ms) e descarta frames sem variação, poupando **80% a 95% de GPU**.
-2. **SAHI (Slicing Aided Hyper Inference):** Fatiamento em janelas 640x640 (overlap 20%) nas ROIs ativas para detecção precisa de alvos pequenos em 1080p/4K com Non-Maximum Merging (NMM).
-
----
-
-## 9. Modos de Gravação & Autopreservação de Armazenamento
-
-- **Perfis de Gravação:** Contínua (24/7), Movimento (VMD), Evento de IA (Smart Alarm) e Híbrido.
-- **Mecanismo Anti-Crash (StorageGuard):** Reserva inviolável de 5% de disco; purges em cascata aos 80%, 90%, 95% (Circuit Breaker) e 98% (Hard Lock), protegendo provas judiciais (`is_pinned = true`).
-- **Exportação Rápida:** Zero-Reencode Stream-Copy (1 hora em 1-3s) e gravação de watermark via NVIDIA NVENC a 800+ FPS.
-
----
-
-## 10. Arquitetura de Plugins Dinâmicos & Marketplace Open-Core
-
-Para permitir a evolução e monetização de analíticos sem interromper o ecossistema:
-- **Ecosistema Open-Core:** O núcleo de execução (`HydraVMS` e `HydraStream`) é aberto; módulos analíticos especializados e licenças de alta capacidade são distribuídos via Marketplace.
-- **Distribuição de Modelos Open Source:** Os modelos pesados (`.engine` / `.onnx`) e manifestos são hospedados gratuitamente no **Hugging Face Hub** (`huggingface.co/hydra-vision`) e **GitHub Releases**, permitindo instalação e atualização em 1-clique pelo `catalog.json`.
-- **Manifesto `plugin.json`:** Define metadados, versão, permissões, schema de configuração da UI e URLs diretas para download do binário TensorRT.
-- **Isolamento de Processos (Sandboxing):** Plugins de terceiros rodam como subprocessos isolados comunicando via IPC (NATS JetStream e /dev/shm para Zero-Copy frames). Analíticos de alta densidade (Intrusão, Permanência, Multidão, Ausência) rodam nativamente em Go/Rust.
-- **Hot-Reload & Blue/Green Updates:** Atualizações de analíticos sobem nova versão em paralelo, transferem subscrições e finalizam a versão antiga com zero descarte de frames.
-
-
----
-
-## 11. Motor de Workflows de Notificação & Integrações (Telegram Nativo & Webhooks)
-
-Para automação inteligente de despacho de alertas em tempo real:
-- **Canal Nativo Telegram Bot (Padrão de Fábrica):** O Telegram é o canal oficial integrado por padrão (out-of-the-box), permitindo despacho instantâneo com texto formatado (câmera, tipo de evento, timestamp, confiança) + foto/snapshot anotado da cena via `sendPhoto` sem necessidade de instalar plugins adicionais.
-- **Integrações Externas via Marketplace:** Outros destinos (Webhooks corporativos, SIEM, MQTT, WhatsApp, E-mail) são conectados como plugins modulares a partir do catálogo.
-- **Anti-Spam Cooldown & Circuit Breaker:** Janela de silenciamento configurável (ex: 30s) para evitar disparos repetidos da mesma detecção consecutiva.
-
-
----
-
-## 11.1. Sistema de Licenciamento Comercial Offline (Ed25519 + Hardware ID)
-
-Para monetização corporativa mantendo o sistema 100% autônomo e seguro em redes isoladas:
-- **Assinatura Criptográfica Asimétrica (Ed25519):** Chave pública embutida no binário Go e chave privada mantida sob controle exclusivo do criador.
-- **Validação por Hardware Fingerprint (`machine_id`):** Licenças são vinculadas ao identificador único da máquina física/servidor, impedindo pirataria ou clonagem de instâncias.
-- **Modelo Escalonado (Tiered):**
-  - **Community (Grátis):** Até 4 ou 8 canais com analíticos essenciais e Telegram nativo.
-  - **Enterprise (Licenciada):** Pacotes de 16, 32, 64, 128+ canais e acesso a analíticos premium.
-- **Operação 100% Offline:** Verificação instantânea ($< 0.001\text{ ms}$) sem dependência de internet ou servidores de ativação remotos.
-
-
-
----
-
-## 12. Arquitetura Híbrida, Cluster de Nós & Playback Sincronizado
-
-### 1. Protocolo de Live Streaming de Ultrabaixa Latência
-- **Padrão:** WebRTC (WHEP - WebRTC HTTP Egress Protocol) com latência `< 300ms`.
-- **Fallback Automático:** WebSocket-fMP4 (MSE) para redes corporativas com bloqueio UDP/STUN.
-
-### 2. Controles PTZ Inteligentes (Renderização Condicional)
-- Controles de Pan/Tilt/Zoom (Virtual Joystick, Presets com thumbnails e Click-to-Center) são renderizados **exclusivamente** em câmeras com suporte ONVIF PTZ ativo (`camera.has_ptz == true`), mantendo a interface limpa em câmeras estáticas.
-
-### 3. Timeline de Gravações Multi-Câmera com Master Clock UTC
-- Barra de tempo unificada que comanda até 16 câmeras simultaneamente sincronizadas no mesmo milissegundo UTC.
-- Botão *"Desacoplar Câmera"* para investigação individual em slot específico sem perder a referência do grid.
-
-### 4. Operação Híbrida & Cluster Multi-Nó (Edge & Cloud)
-- Suporte a servidores Edge locais e nós em nuvem com tela dedicada de configuração de peering e comunicação gRPC / NATS mesh.
-- Buffer local inteligente: se a conexão com a nuvem cair, o Edge grava e executa IA 100% offline, sincronizando metadados Gold e snapshots ao restabelecer o link.
-
-### 5. Conformidade Forense & Privacidade (LGPD)
-- Exportação de MP4 com marca d'água de timestamp e Hash SHA-256 criptográfico contra adulteração.
-- Registro imutável de auditoria (`audit_logs`) para toda visualização de stream ao vivo e download de evidências.
-- Máscaras de privacidade dinâmicas por câmera (desfoque de faces e placas de terceiros).
-
-
----
-
-## 13. Armazenamento Hierárquico, Buffer NVMe & Tratamento de H.265 (HEVC)
-
-### 1. Desacoplamento em 4 Planos (Split-Plane)
-- **Data Plane (HydraStream):** Ingestão e WebRTC WHEP em nós leves de CPU.
-- **Analytics Plane (HydraForge):** TensorRT + SAHI em nós com GPU RTX 5090.
-- **Storage Tier (StorageGuard):** Buffer NVMe de escrita rápida + Spillover para HDs / MinIO S3.
-- **Control Plane (HydraVMS):** API REST, PostgreSQL, RBAC, Workflows e UI Vue 3.
-
-### 2. Busca Rápida Global de Gravações (Direct-to-Source)
-- Índice espaço-temporal centralizado (< 5ms) + Presigned URLs diretas ao storage de origem (Zero-Hop).
-- Sprite Sheets WebP para pré-visualização instantânea na timeline (*scrubbing*) e HTTP 206 Range Requests para play imediato (< 200ms).
-
-### 3. Gestão Dinâmica de Discos NVMe/HD via Painel Web
-- Adição de novos discos em tempo real sem reiniciar o VMS (`storage_pools`).
-- Seletor com recomendação inteligente (*self-advisory*):
-  - `[HOT_VIDEO_BUFFER]`: XFS otimizado para blocos de vídeo de 64MB.
-  - `[EVENTS_DATABASE]`: EXT4 dedicado para PostgreSQL Tablespace e SQLite WAL.
-  - `[AI_SNAPSHOTS_CACHE]`: Armazenamento de fotos de alertas e sprites.
-  - `[WARM_LONG_TERM]`: HDs mecânicos de longo prazo.
-- Dreno contínuo (*Spillover Daemon*) com válvulas de nível de água (70%, 85%, 95%).
-
-### 4. Estratégia de Vídeo H.265 (HEVC) & Dual-Stream
-- Gravação e IA em H.265 original (economia de 50% de espaço); decodificação por GPU via NVDEC.
-- Dual-Stream: Main Stream (H.265 4K) para IA/Gravação; Sub Stream (H.264) para grade multi-view no navegador.
-- WebCodecs no cliente + JIT Transcode com NVIDIA NVENC sob demanda para navegadores legados (somente enquanto a aba estiver aberta).
-
-
----
-
-## 14. Mosaico de Câmeras de Alta Performance & Playback Inferior
-
-### 1. Otimização de Performance para 16+ Streams no Navegador
-- **Comutação Automática de Sub-Stream:** Grades multi-câmera (2x2, 3x3, 4x4) utilizam o Sub-Stream leve (H.264 640x360 @ 15 FPS) da própria câmera, mantendo o consumo de CPU/GPU do navegador abaixo de 15%.
-- **Hero / Single-View Switching:** Ao expandir uma câmera para 1x1, o stream comuta de forma transparente para o Main-Stream (Full-HD ou 4K).
-- **Pausa Fora da Tela (IntersectionObserver):** Streams de abas inativas ou fora da viewport são pausados para economizar banda de rede e GPU.
-
-### 2. Gaveta de Gravações na Parte Inferior (Bottom Playback Drawer)
-- **Inspeção Instantânea em 1-Clique:** Clicar em qualquer slot de câmera do mosaico abre a gaveta inferior com a timeline sem perder o contexto visual das outras câmeras.
-- **Barra Temporal Multicamadas:** Destaque em cores para Gravação Contínua (azul), Detecção de Movimento (amarelo) e Alarmes Críticos de IA (vermelho).
-- **Controles de Avanço & Velocidade:** Botões de salto de ±10s, avanço quadro a quadro (Frame Step ±1) e velocidades estritamente limitadas para o ambiente web em **`1x`, `2x` e `3x`** (garantindo estabilidade de buffer e zero drop frames no navegador).
-- **Ações de Saída:**
-  - *"Tirar Gravação"*: Fecha a gaveta inferior e retorna a visualização ao vivo imediata.
-  - *"Baixar Trecho (Clip)"*: Exporta o trecho selecionado em MP4 com Hash forense SHA-256.
-
-## 15. Catálogo Completo de Skills do HydraVMS
+O projeto possui integração direta com as skills oficiais de IA e UI localizadas em `.agents/skills/`:
 
 | Skill | Finalidade |
 | :--- | :--- |
-| **`vms-mosaic-playback`** | Mosaico de alta performance (1x1 a 4x4), gaveta de timeline inferior e controle de velocidade (1x, 2x e 3x). |
-| **`vms-workflows`** | Motor de automação de eventos, setup de canais (Telegram, WebSockets, Webhooks) e anti-spam. |
-| **`vms-plugins`** | Arquitetura de plugins dinâmicos, hot-reload, manifesto `plugin.json` e marketplace. |
-| **`vms-camera-ingest`** | Ingestão multi-protocolo, auto-descoberta ONVIF WS-Discovery, RTSP interleaved e servidor RTMP push. |
-| **`vms-reports-analytics`** | Geração assíncrona de relatórios (PDF/Excel/CSV), agregações analíticas rápidas (<10ms) e métricas SLA. |
-| **`vms-api-rest`** | Padrões REST, autenticação estrita por Token, Swagger/OpenAPI 3.0, códigos HTTP, RFC 7807 e WebSockets. |
-| **`vms-clustering`** | Arquitetura multi-nó, escala horizontal, gRPC, NATS mesh, WebRTC e auto-discovery de servidores. |
-| **`vms-database`** | Schema SQL relacional, tokens de API, índices compostos, consultas tenant-scoped e migrations. |
-| **`vms-ui`** | Design system Clean Slate Dark, tokens, tipografia, layout e componentes modulares (< 100 linhas). |
-| **`vms-events`** | Regras de eventos de IA, polígonos normalizados, triggers e ciclo de vida. |
-| **`vms-recording`** | Perfis de gravação, MinIO S3 e Presigned URLs. |
-| **`vms-storage-guard`** | Autopreservação de disco, watermarks, circuit breaker e anti-crash. |
-| **`yolo-sahi`** | Fatiamento SAHI, batch inference na RTX 5090 e Non-Maximum Merging (NMM). |
-| **`vms-ecosystem-bootstrap`** | Orquestração multiplataforma (Windows e Linux) para subida completa do ecossistema via PM2 e scripts. |
+| **`stream-ui`** | Design system Clean Slate Dark, tokens, tipografia (`Roboto`/`JetBrains Mono`), layout e componentes modulares (< 100 linhas). |
 | **`validate-project`** | Executa auditoria de conformidade DDD, contagem de linhas web e testes unitários. |
+| **`yolo`** | Router principal de comandos e CLI Ultralytics. |
+| **`yolo-models`** | Guia de arquiteturas: YOLOv8, YOLO11, YOLO26 (Nano a XLarge) e variantes (`detect`, `segment`, `pose`, `obb`). |
+| **`yolo-training`** | Hiperparâmetros, otimizadores (`AdamW`/`SGD`), batch size dinâmico, AMP FP16/BF16 e callbacks. |
+| **`yolo-datasets`** | Estruturas de `data.yaml`, classes, splits train/val e anotações. |
+| **`yolo-tuning`** | Otimização de hiperparâmetros por algoritmos genéticos e Ray Tune. |
+| **`yolo-inference`** | Predição de alta velocidade, tracking e streaming de vídeo. |
+| **`yolo-export`** | Compilação e exportação para **TensorRT (`.engine`)**, **ONNX**, FP16 e quantização INT8. |
 
 ---
 
-## 16. Protocolo de Auto-Reparo & Validação Pós-Prompt (Self-Healing Rules)
+## 4. Pipeline de Ingestão e Treinamento de Modelos
+
+```text
+[ Câmera IP / RTSP ]
+        │
+        ▼ (RFC 2326 TCP Demuxing)
+[ HydraStream Ingest Engine ]
+        │
+        ▼ (Zero-Copy Ring Buffer /dev/shm - 8.46 GB/s)
+[ Pipeline Fan-Out & FPS Governor ]
+   ├──► [ Consumidor Analítico YOLO (2 FPS) ]
+   └──► [ Active Learning / Dataset Collection ]
+              │
+              ▼ (Treinamento na RTX 5090 via HydraForge)
+        [ Ultralytics PyTorch Training Loop ]
+              │
+              ▼ (Exportação 1-Clique)
+        [ TensorRT Engine (.engine) / ONNX ]
+              │
+              ▼
+        [ Inferência Ultrarrápida a 18.500+ FPS ]
+```
+
+---
+
+## 5. Validação de Parâmetros e Restrições de Domínio
+
+Antes de qualquer execução ou persistência, os seguintes limites devem ser validados:
+
+1. **Parâmetros de Stream:**
+   - `stream_id`: Obrigatório, alfanumérico e underscores (ex: `cam_entrance_01`).
+   - `ingest_fps`: Entre `1.0` e `120.0` FPS.
+   - `target_fps` por consumidor: Entre `0.1` e `60.0` FPS.
+2. **Parâmetros de Treinamento YOLO:**
+   - `epochs`: Inteiro positivo entre `1` e `1000`.
+   - `imgsz`: Múltiplo de 32 (ex: `640`, `1280`, `1920`).
+   - `device`: Identificador CUDA válido (`0`, `cuda:0` ou `cpu`).
+   - `batch`: `-1` (Auto-batch) ou potências de 2 (`8`, `16`, `32`, `64`).
+
+---
+
+## 6. Bateria de Testes e Benchmarks Físicos
+
+Todos os comandos de validação são automatizados via `Makefile`:
+
+```bash
+# Executa todos os testes unitários e de concorrência (Go & Rust)
+make test
+
+# Executa o benchmark de throughput de memória compartilhada POSIX SHM em Rust
+make benchmark
+
+# Executa a comparação em hardware real: Tradicional vs HydraStream CPU vs GPU RTX 5090
+make benchmark-compare
+
+# Inicia o servidor em modo de desenvolvimento (Go + Rust WSP Engine)
+make dev
+
+# Inicia o servidor Rust WSP standalone
+make wsp-server
+
+# Publica fluxo RTSP de teste
+make stream-sample
+```
+
+---
+
+## 7. Protocolo de Auto-Reparo & Validação Pós-Prompt (Self-Healing Rules)
+
+Ao final de **qualquer modificação de código**, o agente deve obrigatoriamente executar o seguinte checklist de auto-reparo antes de concluir:
 
 ```bash
 # 1. Auditoria de Limite de Linhas Web (Composables <= 120, Views <= 200, Locales/Types isentos)
-wc -l web/src/**/*.vue web/src/**/*.ts web/src/**/*.css web/src/**/*.js 2>/dev/null | awk '$2 !~ /locales|types/ && $1 > 200 { print "VIOLATION: " $2 " has " $1 " lines (>200)" }'
+wc -l web/css/*.css web/css/*/*.css web/js/*.js web/js/*/*.js web/src/**/*.css web/src/**/*.jsx 2>/dev/null | awk '$2 !~ /locales|types/ && $1 > 200 { print "VIOLATION: " $2 " has " $1 " lines (>200)" }'
 
-# 2. Auditoria de Pureza DDD (Nenhum import de infra no domínio)
-grep -rnE "(net/http|database/sql)" internal/domain/ && echo "VIOLAÇÃO DDD: Remova infraestrutura do domínio!"
+# 2. Auditoria de Limite de Linhas Backend (Go & Rust <= 350 teto)
+wc -l crates/hydra-engine/src/*.rs crates/hydra-engine/src/*/*.rs 2>/dev/null | awk '$2 != "total" && $2 !~ /tests/ && $1 > 350 { print "VIOLATION RUST: " $2 " has " $1 " lines (>350)" }'
 
-# 3. Compilação e Testes Automatizados
+# 3. Auditoria de Pureza DDD (Nenhum import de net/http no domínio)
+grep -rn "net/http" internal/domain/ && echo "VIOLAÇÃO DDD: Remova net/http do domínio!"
+
+# 4. Compilação e Testes Automatizados
 make test && make build
 
-# 4. Auditoria de Paridade de Internacionalização (i18n PT, EN, ES)
-npm --prefix web run check:i18n
+# 4. Auditoria de Paridade de Internacionalização (i18n)
+# Todo texto ou chave nova adicionada no frontend DEVE existir em todos os idiomas suportados (PT, EN, ES).
+
+# 5. Sincronização da Documentação
+# Garantir que README.md (Inglês) e README.pt-BR.md (Português) estejam 100% atualizados.
 ```
 
+Se qualquer etapa falhar, o código deve ser corrigido imediatamente antes de prosseguir.

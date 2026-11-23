@@ -1,41 +1,47 @@
-# Build & Dist
+# GitIgnore for HydraStream Project
+
+# Agent Private Rules, Skills, and Customizations (Local Only - DO NOT PUSH)
+.gemini/
+.agents/
+_agents/
+
+# Binary & Build Artifacts
 bin/
-dist/
-target/
-/hydravms
-/hydravms.exe*
 /hydrastream
 /hydrastream.exe*
+target/
+*.so
+*.a
+*.o
+*.dylib
 *.exe
 *.exe~
 *.dll
-*.so
-*.dylib
 
-
-# Database & Storage
+# Storage & Databases
+storage/
 *.db
 *.db-*
 *.db-shm
 *.db-wal
-*.sqlite
-*.sqlite3
-storage/
 
-# Node & Frontend
-node_modules/
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-.pnpm-debug.log*
+
+# Python Build & Cache Artifacts
+__pycache__/
+*.pyc
+*.egg-info/
+dist/
 build/
-*.tsbuildinfo
+.pytest_cache/
 
-# Camera Snapshots, Media & Recordings (Sensitive - NEVER COMMIT)
+# Shared Memory temporary files
+/dev/shm/hs_shm_*
+
+# Camera Snapshots & Media (Sensitive - NEVER COMMIT)
 samples/
+samples/*
+!samples/.gitkeep
 snapshots/
-media/
-recordings/
 *.jpg
 *.jpeg
 *.png
@@ -50,17 +56,10 @@ recordings/
 *.key
 *.crt
 
-# IDE & OS
+# IDE & System Files
 .idea/
 .vscode/
 .DS_Store
-
-scripts/worker_live_analytics.py
-yolo26m.pt
-
-# MCP and Local Agent Configs
-mcp_config.json
-.agents/mcp_config.json
 
 # PM2 Local Ecosystem Configs
 ecosystem.config.js
