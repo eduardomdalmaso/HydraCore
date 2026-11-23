@@ -16,6 +16,8 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+
+	"hydrastream/internal/adapters/secondary/shm"
 )
 
 func (r *RTSPIngestor) connectAndDemuxRTSP(ctx context.Context, sess *ingestSession) error {
@@ -204,7 +206,13 @@ func (r *RTSPIngestor) connectAndDemuxRTSP(ctx context.Context, sess *ingestSess
 		_ = pub.PublishCameraOnline(ctx, "", sess.streamID)
 	}
 
+	shmWriter, shmErr := shm.NewManager().OpenWriter(sess.streamID, 16, 512*1024)
+	if shmErr == nil {
+		defer shmWriter.Close()
+	}
+
 	buf := make([]byte, 65536)
+	frameBuf := make([]byte, 0, 128*1024)
 	var lastSeq uint16
 	hasSeq := false
 	lastKeepalive := time.Now()
@@ -264,8 +272,18 @@ func (r *RTSPIngestor) connectAndDemuxRTSP(ctx context.Context, sess *ingestSess
 					hasSeq = true
 
 					marker := (buf[1] & 0x80) != 0
+					if shmWriter != nil && payloadLen > 12 {
+						frameBuf = append(frameBuf, buf[12:payloadLen]...)
+						if len(frameBuf) > 512*1024 {
+							frameBuf = frameBuf[:0]
+						}
+					}
 					if marker {
 						atomic.AddUint64(&sess.framesTotal, 1)
+						if shmWriter != nil && len(frameBuf) > 0 {
+							_ = shmWriter.WriteFrame(uint64(time.Now().UnixMicro()), false, frameBuf)
+							frameBuf = frameBuf[:0]
+						}
 					}
 
 					now := time.Now()

@@ -13,8 +13,9 @@ use tokio_tungstenite::tungstenite::protocol::Message;
 use tokio_tungstenite::tungstenite::handshake::server::{Request, Response};
 use crate::codec::FLAG_KEYFRAME;
 use crate::gateway::AsyncStreamGateway;
+use crate::shm::ShmReader;
 use crate::transcode::TranscodePool;
-use crate::transport::BIT_WEBSOCKET;
+use crate::transport::{BroadcastHub, FramePayload, BIT_WEBSOCKET};
 use crate::wsp::pack_wsp_frame;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -66,6 +67,47 @@ impl StreamRegistry {
     }
 
     pub fn get(&self, stream_id: &str) -> Option<Arc<StreamEntry>> {
+        if let Some(entry) = self.streams.read().get(stream_id).cloned() {
+            return Some(entry);
+        }
+        self.try_attach_shm(stream_id)
+    }
+
+    fn try_attach_shm(&self, stream_id: &str) -> Option<Arc<StreamEntry>> {
+        let mut reader = ShmReader::open(stream_id).ok()?;
+        let hub = Arc::new(BroadcastHub::new(64));
+        let gateway = Arc::new(AsyncStreamGateway::new(hub, 64));
+        self.register(stream_id, StreamCodec::H264, gateway.clone());
+        let sid = stream_id.to_string();
+        let gw_clone = gateway.clone();
+        tokio::task::spawn_blocking(move || {
+            let mut buf = Vec::with_capacity(65536);
+            loop {
+                match reader.wait_and_read_frame(&mut buf, Some(std::time::Duration::from_millis(500))) {
+                    Ok(Some(meta)) => {
+                        let payload = FramePayload::new_host(
+                            meta.sequence,
+                            meta.timestamp_us,
+                            reader.header().width,
+                            reader.header().height,
+                            reader.header().format,
+                            BIT_WEBSOCKET,
+                            buf.clone(),
+                        );
+                        if gw_clone.dispatch_frame(payload, meta.flags).is_err() {
+                            break;
+                        }
+                    }
+                    Ok(None) => {
+                        if !std::path::Path::new(&format!("/dev/shm/hydra_{}", sid)).exists() {
+                            break;
+                        }
+                    }
+                    Err(_) => break,
+                }
+            }
+            let _ = sid;
+        });
         self.streams.read().get(stream_id).cloned()
     }
 
