@@ -42,12 +42,14 @@ type RTSPIngestor struct {
 	mu        sync.RWMutex
 	sessions  map[string]*ingestSession
 	publisher StreamEventPublisher
+	dialSem   chan struct{}
 }
 
 // NewRTSPIngestor creates a new RTSPIngestor adapter.
 func NewRTSPIngestor() *RTSPIngestor {
 	return &RTSPIngestor{
 		sessions: make(map[string]*ingestSession),
+		dialSem:  make(chan struct{}, 24),
 	}
 }
 

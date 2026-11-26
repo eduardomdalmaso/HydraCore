@@ -45,6 +45,23 @@ func (r *RTSPIngestor) connectAndDemuxRTSP(ctx context.Context, sess *ingestSess
 		rawURI = sess.sourceURL
 	}
 
+	// Acquire dial/handshake semaphore (24 concurrent RTSP handshakes max)
+	if r.dialSem != nil {
+		select {
+		case r.dialSem <- struct{}{}:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	handshakeHeld := r.dialSem != nil
+	releaseHandshake := func() {
+		if handshakeHeld {
+			<-r.dialSem
+			handshakeHeld = false
+		}
+	}
+	defer releaseHandshake()
+
 	d := net.Dialer{Timeout: 5 * time.Second}
 	conn, err := d.DialContext(ctx, "tcp", host)
 	if err != nil {
@@ -147,7 +164,9 @@ func (r *RTSPIngestor) connectAndDemuxRTSP(ctx context.Context, sess *ingestSess
 	if !strings.Contains(setupHeaders, "200 OK") {
 		return fmt.Errorf("SETUP error: %s", firstStatusLine(setupHeaders))
 	}
+	sessionHdrRaw := extractHeaderRaw(setupHeaders, "Session")
 	sessionHdr := extractHeader(setupHeaders, "Session")
+	keepaliveInterval := parseSessionTimeout(sessionHdrRaw)
 	cseq++
 
 	playURI := rawURI
@@ -196,6 +215,7 @@ func (r *RTSPIngestor) connectAndDemuxRTSP(ctx context.Context, sess *ingestSess
 	}
 	cseq++
 	_ = conn.SetDeadline(time.Time{})
+	releaseHandshake()
 
 	log.Printf("[HydraStream RTSP] Stream '%s' established active TCP session with %s.", sess.streamID, host)
 
@@ -222,7 +242,7 @@ func (r *RTSPIngestor) connectAndDemuxRTSP(ctx context.Context, sess *ingestSess
 		case <-ctx.Done():
 			return nil
 		default:
-			if time.Since(lastKeepalive) >= 25*time.Second {
+			if keepaliveInterval > 0 && time.Since(lastKeepalive) >= keepaliveInterval {
 				keepExtra := ""
 				if sessionHdr != "" {
 					keepExtra = fmt.Sprintf("Session: %s\r\n", sessionHdr)
@@ -297,10 +317,12 @@ func (r *RTSPIngestor) connectAndDemuxRTSP(ctx context.Context, sess *ingestSess
 					sess.lastFrameTime = now
 					sess.mu.Unlock()
 				}
-			} else {
+			} else if prefix == 'R' {
 				// Consume interleaved RTSP response text (e.g., keepalive 200 OK) cleanly
 				_ = br.UnreadByte()
-				_, _, _ = readRTSPMessage(br)
+				if _, _, err := readRTSPMessage(br); err != nil {
+					return fmt.Errorf("interleaved RTSP read failed: %w", err)
+				}
 			}
 		}
 	}
@@ -341,6 +363,26 @@ func readRTSPMessage(br *bufio.Reader) (headers string, body []byte, err error) 
 	}
 
 	return headers, body, nil
+}
+
+func parseSessionTimeout(sessionRaw string) time.Duration {
+	lower := strings.ToLower(sessionRaw)
+	idx := strings.Index(lower, "timeout=")
+	if idx == -1 {
+		return 0 // No explicit session timeout; rely on active TCP RTP flow
+	}
+	sub := lower[idx+len("timeout="):]
+	if semi := strings.Index(sub, ";"); semi != -1 {
+		sub = sub[:semi]
+	}
+	sec, err := strconv.Atoi(strings.TrimSpace(sub))
+	if err != nil || sec <= 0 {
+		return 0
+	}
+	if sec > 15 {
+		return time.Duration(sec-10) * time.Second
+	}
+	return time.Duration(sec) * time.Second
 }
 
 func firstStatusLine(headers string) string {
