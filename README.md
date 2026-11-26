@@ -124,8 +124,9 @@ Scaling concurrent downstream consumers (1 → 50) on a single 15 FPS stream ([r
 | **25** | 2.24% | **0.70%** | 62.43 MB | **19.76 MB** | 0.51 ms / 0.74 ms |
 | **50** | 3.36% | **1.19%** (`2.8x` lower) | 65.18 MB | **20.73 MB** (`3.1x` lower) | **0.74 ms / 1.07 ms** |
 
-![Fan-Out CPU Comparison](benchmark_results/v5_cpu.png)
-![Fan-Out RAM Comparison](benchmark_results/v5_ram.png)
+![Fan-Out CPU Comparison](docs/assets/v5_cpu.png)
+
+![Fan-Out RAM Comparison](docs/assets/v5_ram.png)
 
 ### 2. High-Density Camera Scale Test (`100` → `377` Cameras, `benchmark_v4_2.csv`)
 

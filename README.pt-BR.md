@@ -124,8 +124,9 @@ Escalonamento de consumidores concorrentes (1 → 50) em um fluxo de 15 FPS ([CS
 | **25** | 2,24% | **0,70%** | 62,43 MB | **19,76 MB** | 0,51 ms / 0,74 ms |
 | **50** | 3,36% | **1,19%** (`2,8x` menor) | 65,18 MB | **20,73 MB** (`3,1x` menor) | **0,74 ms / 1,07 ms** |
 
-![Comparativo CPU Fan-Out](benchmark_results/v5_cpu.png)
-![Comparativo RAM Fan-Out](benchmark_results/v5_ram.png)
+![Comparativo CPU Fan-Out](docs/assets/v5_cpu.png)
+
+![Comparativo RAM Fan-Out](docs/assets/v5_ram.png)
 
 ### 2. Teste de Escala de Câmeras (`100` → `377` Câmeras, `benchmark_v4_2.csv`)
 
