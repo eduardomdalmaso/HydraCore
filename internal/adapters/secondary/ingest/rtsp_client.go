@@ -280,6 +280,9 @@ func (r *RTSPIngestor) connectAndDemuxRTSP(ctx context.Context, sess *ingestSess
 				if ch == 0 && payloadLen >= 12 {
 					atomic.AddUint64(&sess.rtpPacketsTotal, 1)
 					atomic.AddUint64(&sess.bytesTotal, uint64(payloadLen))
+					if r.hub != nil {
+						r.hub.publish(sess.streamID, buf[:payloadLen])
+					}
 
 					seq := binary.BigEndian.Uint16(buf[2:4])
 					if hasSeq {

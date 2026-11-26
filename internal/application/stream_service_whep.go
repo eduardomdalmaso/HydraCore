@@ -27,7 +27,42 @@ func (s *StreamService) HandleWHEPOffer(ctx context.Context, streamID string, sd
 
 	s.whepMu.RLock()
 	baseURL := s.whepBaseURL
+	gw := s.webrtcGW
 	s.whepMu.RUnlock()
+
+	if gw != nil {
+		st, _ := s.repo.FindByID(ctx, streamID)
+		if st == nil {
+			st = &domain.Stream{StreamID: streamID, Codec: "H264"}
+		}
+		sessionID, sdpAnswer, err := gw.NegotiateWHEP(ctx, st, sdpOffer, func(sid string) {
+			_, _ = s.ReleaseStream(context.Background(), streamID, "whep:"+sid)
+		})
+		if err != nil {
+			return nil, err
+		}
+		_, _ = s.AcquireStream(ctx, streamID, "whep:"+sessionID)
+		session := &domain.WHEPSession{
+			SessionID: sessionID,
+			StreamID:  streamID,
+			SDPOffer:  sdpOffer,
+			SDPAnswer: sdpAnswer,
+			CreatedAt: time.Now().UTC(),
+			ExpiresAt: time.Now().UTC().Add(30 * time.Minute),
+		}
+		s.whepMu.Lock()
+		s.whepSessions[sessionID] = session
+		s.whepMu.Unlock()
+
+		loc := fmt.Sprintf("/api/v1/streams/%s/whep/sessions/%s", streamID, sessionID)
+		s.RecordLog(domain.LogLevelInfo, "whep", fmt.Sprintf("Negotiated native WebRTC WHEP session '%s' for stream '%s'", sessionID, streamID), nil)
+		return &domain.WHEPAnswer{
+			SessionID: sessionID,
+			StreamID:  streamID,
+			SDPAnswer: sdpAnswer,
+			Location:  loc,
+		}, nil
+	}
 
 	sessionID := randomSessionID()
 
@@ -130,8 +165,14 @@ func (s *StreamService) HandleWHEPDelete(ctx context.Context, streamID, sessionI
 	}
 	upstreamLoc := session.UpstreamLocation
 	baseURL := s.whepBaseURL
+	gw := s.webrtcGW
 	delete(s.whepSessions, sessionID)
 	s.whepMu.Unlock()
+
+	if gw != nil {
+		_ = gw.CloseSession(sessionID)
+	}
+	_, _ = s.ReleaseStream(ctx, streamID, "whep:"+sessionID)
 
 	if upstreamLoc != "" {
 		targetURL := upstreamLoc

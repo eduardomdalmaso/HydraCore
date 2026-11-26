@@ -13,3 +13,8 @@ type StreamIngestor interface {
 	GetIngestStats(ctx context.Context, streamID string) (*domain.IngestStats, error)
 	ListActiveIngests(ctx context.Context) ([]*domain.IngestStats, error)
 }
+
+// RTPStreamSource provides non-blocking 1-to-N raw RTP packet subscriptions for WebRTC egress.
+type RTPStreamSource interface {
+	SubscribeRTP(streamID string) (<-chan []byte, func())
+}

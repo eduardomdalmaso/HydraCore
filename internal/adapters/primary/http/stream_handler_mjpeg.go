@@ -36,6 +36,9 @@ func stopMJPEGInternal(streamID string) {
 }
 
 func (h *Handler) handleMJPEG(w http.ResponseWriter, r *http.Request, st *domain.Stream) {
+	rc := http.NewResponseController(w)
+	_ = rc.SetWriteDeadline(time.Time{})
+
 	w.Header().Set("Content-Type", "multipart/x-mixed-replace; boundary=ffmpeg")
 	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
 	w.Header().Set("Pragma", "no-cache")
@@ -58,16 +61,19 @@ func (h *Handler) handleMJPEG(w http.ResponseWriter, r *http.Request, st *domain
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
 
+	consumerID := fmt.Sprintf("mjpeg:%s:%d", cleanID, time.Now().UnixNano())
+	_, _ = h.useCase.AcquireStream(ctx, st.StreamID, consumerID)
+	defer func() {
+		_, _ = h.useCase.ReleaseStream(context.Background(), st.StreamID, consumerID)
+	}()
+
 	mjpegMu.Lock()
-	if oldCancel, exists := mjpegCancels[cleanID]; exists && oldCancel != nil {
-		oldCancel()
-	}
-	mjpegCancels[cleanID] = cancel
+	mjpegCancels[consumerID] = cancel
 	mjpegMu.Unlock()
 
 	defer func() {
 		mjpegMu.Lock()
-		delete(mjpegCancels, cleanID)
+		delete(mjpegCancels, consumerID)
 		mjpegMu.Unlock()
 	}()
 
@@ -118,8 +124,11 @@ func (h *Handler) handleMJPEG(w http.ResponseWriter, r *http.Request, st *domain
 				codecFormat = "hevc"
 			}
 
-			args := []string{
-				"-loglevel", "warning",
+			args := []string{"-loglevel", "warning"}
+			if codecFormat == "hevc" {
+				args = append(args, "-hwaccel", "cuda")
+			}
+			args = append(args,
 				"-probesize", "32768",
 				"-analyzeduration", "0",
 				"-fflags", "nobuffer+discardcorrupt",
@@ -135,7 +144,7 @@ func (h *Handler) handleMJPEG(w http.ResponseWriter, r *http.Request, st *domain
 				"-f", "mpjpeg",
 				"-boundary_tag", "ffmpeg",
 				"-",
-			}
+			)
 
 			cmd := exec.CommandContext(ctx, ffmpegBin, args...)
 			proc.SetHideWindow(cmd)

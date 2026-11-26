@@ -18,7 +18,10 @@ import (
 	"hydrastream/internal/adapters/secondary/memory"
 	natsAdapter "hydrastream/internal/adapters/secondary/nats"
 	"hydrastream/internal/adapters/secondary/onvif"
+	webrtcAdapter "hydrastream/internal/adapters/secondary/webrtc"
 	"hydrastream/internal/application"
+	"hydrastream/internal/domain"
+	"hydrastream/internal/ports"
 )
 
 func main() {
@@ -35,6 +38,8 @@ func main() {
 	onvifAdapter := onvif.NewONVIFAdapter()
 
 	streamService := application.NewStreamService(streamRepo, rtspIngestor, onvifAdapter, ringLogger)
+	whepGW := webrtcAdapter.NewPionWHEPGateway(rtspIngestor)
+	streamService.SetWebRTCGateway(whepGW)
 
 	apiHandler := httpAdapter.NewHandler(streamService)
 
@@ -67,6 +72,26 @@ func main() {
 	} else if !strings.HasPrefix(port, ":") {
 		port = ":" + port
 	}
+
+	var mesh ports.ClusterMesh
+	if natsPub != nil {
+		mesh = natsAdapter.NewClusterNATSMesh(natsPub.Conn())
+	}
+	clusterRole := domain.NodeRole(strings.ToLower(os.Getenv("CLUSTER_ROLE")))
+	if clusterRole != domain.NodeRoleSlave {
+		clusterRole = domain.NodeRoleMaster
+	}
+	nodeID := os.Getenv("NODE_ID")
+	balancer := application.NewBalancerService(
+		nodeID,
+		clusterRole,
+		"http://localhost"+port,
+		streamService,
+		mesh,
+		domain.DefaultBalancerConfig(),
+	)
+	streamService.SetClusterBalancer(balancer)
+	balancer.Start(context.Background())
 	server := &http.Server{
 		Addr:         port,
 		Handler:      httpAdapter.WithCORS(mux),
@@ -87,6 +112,8 @@ func main() {
 	<-quit
 
 	log.Println("🛑 [HydraStream] Shutting down Data Plane gracefully...")
+	whepGW.CloseAll()
+	balancer.Stop()
 	httpAdapter.StopAllH264Bridges()
 	if natsPub != nil {
 		natsPub.Close()

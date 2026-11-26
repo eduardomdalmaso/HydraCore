@@ -210,6 +210,61 @@ func (s *StreamService) GetControlPanelTelemetry(ctx context.Context) (*domain.C
 	return telemetry, nil
 }
 
+func (s *StreamService) GetClusterMetrics(ctx context.Context) (*domain.ClusterMetricsSnapshot, error) {
+	if s.balancer != nil {
+		return s.balancer.GetClusterMetrics(ctx)
+	}
+	hw, _ := s.GetHardwareTelemetry(ctx)
+	streams, total, _ := s.repo.ListFiltered(ctx, "", "", "", 1, 1000)
+	var totalFPS float64
+	assignments := make([]domain.StreamAssignment, 0, len(streams))
+	for _, st := range streams {
+		totalFPS += st.IngestFPS
+		assignments = append(assignments, domain.StreamAssignment{
+			StreamID:  st.StreamID,
+			NodeID:    "local",
+			TenantID:  st.TenantID,
+			SourceURL: maskSourceURL(st.SourceURL),
+			Codec:     st.Codec,
+			IngestFPS: st.IngestFPS,
+			Status:    st.Status,
+		})
+	}
+	node := domain.ClusterNodeMetrics{
+		NodeID:         "local",
+		Role:           domain.NodeRoleMaster,
+		Status:         domain.NodeStatusOnline,
+		ActiveStreams:  total,
+		TotalIngestFPS: totalFPS,
+		LastHeartbeat:  time.Now().UTC(),
+	}
+	if hw != nil {
+		node.Hostname = hw.Host.Hostname
+		node.CPUCores = hw.Host.CPUCores
+		node.CPUUsagePct = hw.Host.CPUUsagePct
+		node.RAMTotalMB = hw.Host.HostTotalRAMMB
+		node.RAMUsedMB = hw.Host.HostUsedRAMMB
+		node.RAMUsagePct = hw.Host.HostRAMUsagePct
+		node.GPUDetected = hw.GPU.Detected
+		node.GPUModel = hw.GPU.Model
+		node.GPUUtilPct = hw.GPU.GPUUtilPct
+		node.VRAMUsagePct = hw.GPU.VRAMUsagePct
+		node.SHMOccupancyPct = hw.SHM.OccupancyPct
+	}
+	node.LoadScore = domain.CalculateLoadScore(node)
+	return &domain.ClusterMetricsSnapshot{
+		ClusterRole:  domain.NodeRoleMaster,
+		LocalNodeID:  "local",
+		TotalNodes:   1,
+		OnlineNodes:  1,
+		TotalStreams: total,
+		Nodes:        []domain.ClusterNodeMetrics{node},
+		Assignments:  assignments,
+		Balancer:     domain.BalancerStatus{Enabled: false, Strategy: "standalone"},
+		CollectedAt:  time.Now().UTC(),
+	}, nil
+}
+
 func (s *StreamService) GetClusterTopology(ctx context.Context, streamID string) (*domain.ClusterTopology, error) {
 	if streamID == "" {
 		streamID = "cam_entrance_01"

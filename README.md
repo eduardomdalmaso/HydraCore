@@ -108,6 +108,48 @@ Measured in real-time on an **NVIDIA GeForce RTX 5090 (32GB VRAM)** + **16-Core 
 
 ---
 
+## Real-World Benchmarks: MediaMTX vs. HydraStream (Evidence & Artifacts)
+
+All raw CSV/JSON logs, charts, and PDF reports are stored in [`benchmark_results/`](benchmark_results/).
+
+### 1. 1-to-N Fan-Out Comparison: MediaMTX vs. HydraStream (`benchmark_fanout_v5.csv`)
+
+Scaling concurrent downstream consumers (1 → 50) on a single 15 FPS stream ([raw CSV](benchmark_results/benchmark_fanout_v5.csv) · [PDF report](benchmark_results/benchmark_fanout_v5.pdf)):
+
+| Consumers | MediaMTX CPU | HydraStream CPU | MediaMTX RAM | HydraStream RAM | HydraStream Avg / P95 Latency |
+| :---: | :---: | :---: | :---: | :---: | :---: |
+| **1** | 0.37% | **0.30%** | 55.35 MB | **17.81 MB** | 0.26 ms / 0.25 ms |
+| **5** | 0.75% | **0.40%** | 57.32 MB | **18.29 MB** | 0.41 ms / 0.37 ms |
+| **10** | 1.21% | **0.70%** | 59.35 MB | **18.76 MB** | 0.57 ms / 0.44 ms |
+| **25** | 2.24% | **0.70%** | 62.43 MB | **19.76 MB** | 0.51 ms / 0.74 ms |
+| **50** | 3.36% | **1.19%** (`2.8x` lower) | 65.18 MB | **20.73 MB** (`3.1x` lower) | **0.74 ms / 1.07 ms** |
+
+![Fan-Out CPU Comparison](benchmark_results/v5_cpu.png)
+![Fan-Out RAM Comparison](benchmark_results/v5_ram.png)
+
+### 2. High-Density Camera Scale Test (`100` → `377` Cameras, `benchmark_v4_2.csv`)
+
+Concurrent camera ingestion ramp-up ([raw CSV](benchmark_results/benchmark_v4_2.csv) · [PDF report](benchmark_results/benchmark_v4_2.pdf)):
+
+| Target Cameras | Concurrency | Operational | Avg TTFF | CPU Total | RAM RSS | Media RX |
+| :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| **100** | 50 | `100 / 100` | 626.5 ms | 19.77% | 32.39 MB | 87.52 Mbps |
+| **200** | 50 | `200 / 200` | 635.2 ms | 42.54% | 57.95 MB | 170.12 Mbps |
+| **300** | 50 | `300 / 300` | 806.7 ms | 63.49% | 62.48 MB | 237.89 Mbps |
+| **377** | 20 | `373 / 377` | 826.4 ms | 72.18% | 79.35 MB | 264.62 Mbps |
+
+### 3. Sustained 377-Camera Stress Test (`benchmark_377_v6.csv`)
+
+Three full-scale repetitions across 377 simultaneous cameras ([raw CSV](benchmark_results/benchmark_377_v6.csv) · [JSON](benchmark_results/benchmark_377_v6.json)):
+
+| Run | Operational | Total FPS | CPU Total | RAM RSS | `/dev/shm` | Media RX |
+| :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| **Rep 1** | `376 / 377` | **5,235.0 FPS** | 75.05% | 262.13 MB | 3,005.80 MB | 259.47 Mbps |
+| **Rep 2** | `366 / 377` | **5,092.6 FPS** | 73.05% | 338.34 MB | 2,928.46 MB | 247.41 Mbps |
+| **Rep 3** | `374 / 377` | **5,177.3 FPS** | 73.13% | 336.19 MB | 2,987.13 MB | 258.74 Mbps |
+
+---
+
 ## Control Plane & Management API
 
 HydraStream includes a high-performance **REST API** allowing users and orchestrators to dynamically configure streams, adjust target FPS per analytic, and inspect real-time telemetry:

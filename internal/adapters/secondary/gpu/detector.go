@@ -177,6 +177,7 @@ func GetCompleteHardwareTelemetry() domain.HardwareTelemetry {
 			OS:              runtime.GOOS,
 			Architecture:    runtime.GOARCH,
 			CPUCores:        runtime.NumCPU(),
+			CPUUsagePct:     proc.GetCPUUsagePct(),
 			Goroutines:      runtime.NumGoroutine(),
 			HostTotalRAMMB:  hostTotalRAM,
 			HostUsedRAMMB:   hostUsedRAM,

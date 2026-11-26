@@ -14,6 +14,8 @@ type StreamUseCase interface {
 	GetStream(ctx context.Context, streamID string) (*domain.Stream, error)
 	ListStreams(ctx context.Context, searchQuery, tenantFilter, sortBy string, page, limit int) ([]*domain.Stream, int, error)
 	DeleteStream(ctx context.Context, streamID string) error
+	AcquireStream(ctx context.Context, streamID, consumerID string) (int, error)
+	ReleaseStream(ctx context.Context, streamID, consumerID string) (int, error)
 	UpdateConsumer(ctx context.Context, streamID, analyticType string, targetFPS float64, format string) error
 	GetClusterTopology(ctx context.Context, streamID string) (*domain.ClusterTopology, error)
 	GetSystemInfo(ctx context.Context) (*domain.SystemInfo, error)
@@ -27,6 +29,7 @@ type StreamUseCase interface {
 	GetHealth(ctx context.Context) (*domain.SystemHealth, error)
 	GetHardwareTelemetry(ctx context.Context) (*domain.HardwareTelemetry, error)
 	GetUnifiedTelemetry(ctx context.Context) (*domain.UnifiedTelemetry, error)
+	GetClusterMetrics(ctx context.Context) (*domain.ClusterMetricsSnapshot, error)
 	GetLogs(ctx context.Context, filter domain.LogFilter) (*domain.LogQueryResult, error)
 	GetErrorSummary(ctx context.Context) (*domain.ErrorSummary, error)
 	RecordLog(level domain.LogLevel, component, message string, details map[string]interface{})

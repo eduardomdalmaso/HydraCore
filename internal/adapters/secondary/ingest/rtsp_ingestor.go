@@ -43,6 +43,7 @@ type RTSPIngestor struct {
 	sessions  map[string]*ingestSession
 	publisher StreamEventPublisher
 	dialSem   chan struct{}
+	hub       *rtpHub
 }
 
 // NewRTSPIngestor creates a new RTSPIngestor adapter.
@@ -50,6 +51,7 @@ func NewRTSPIngestor() *RTSPIngestor {
 	return &RTSPIngestor{
 		sessions: make(map[string]*ingestSession),
 		dialSem:  make(chan struct{}, 24),
+		hub:      newRTPHub(),
 	}
 }
 

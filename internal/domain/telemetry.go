@@ -54,13 +54,14 @@ type ErrorSummary struct {
 
 // HostHardware holds CPU and operating system telemetry.
 type HostHardware struct {
-	Hostname       string  `json:"hostname"`
-	OS             string  `json:"os"`
-	Architecture   string  `json:"architecture"`
-	CPUCores       int     `json:"cpu_cores"`
-	Goroutines     int     `json:"goroutines"`
-	HostTotalRAMMB float64 `json:"host_total_ram_mb"`
-	HostUsedRAMMB  float64 `json:"host_used_ram_mb"`
+	Hostname        string  `json:"hostname"`
+	OS              string  `json:"os"`
+	Architecture    string  `json:"architecture"`
+	CPUCores        int     `json:"cpu_cores"`
+	CPUUsagePct     float64 `json:"cpu_usage_pct"`
+	Goroutines      int     `json:"goroutines"`
+	HostTotalRAMMB  float64 `json:"host_total_ram_mb"`
+	HostUsedRAMMB   float64 `json:"host_used_ram_mb"`
 	HostRAMUsagePct float64 `json:"host_ram_usage_pct"`
 }
 

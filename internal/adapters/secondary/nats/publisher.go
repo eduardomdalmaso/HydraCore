@@ -148,6 +148,11 @@ func (p *StreamNATSPublisher) PublishRecordingSegment(ctx context.Context, tenan
 	return p.nc.Publish(subject, payload)
 }
 
+// Conn returns the underlying NATS connection for shared mesh adapters.
+func (p *StreamNATSPublisher) Conn() *nats.Conn {
+	return p.nc
+}
+
 // Close gracefully closes the NATS connection.
 func (p *StreamNATSPublisher) Close() {
 	if p.nc != nil {

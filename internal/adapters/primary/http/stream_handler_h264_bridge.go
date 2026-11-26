@@ -85,6 +85,7 @@ func (h *Handler) handleH264BridgeStart(w http.ResponseWriter, r *http.Request, 
 
 	cleanID := filepath.Base(streamID)
 	baseID := strings.TrimSuffix(cleanID, "_sub")
+	_, _ = h.useCase.AcquireStream(r.Context(), baseID, "h264_bridge:"+cleanID)
 
 	h264BridgeMu.Lock()
 	if cmd, running := h264Bridges[cleanID]; running && cmd != nil && cmd.Process != nil {
@@ -256,10 +257,13 @@ func (h *Handler) handleH264BridgeStart(w http.ResponseWriter, r *http.Request, 
 	})
 }
 
-func (h *Handler) handleH264BridgeStop(w http.ResponseWriter, _ *http.Request, streamID string) {
+func (h *Handler) handleH264BridgeStop(w http.ResponseWriter, r *http.Request, streamID string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 
+	cleanID := filepath.Base(streamID)
+	baseID := strings.TrimSuffix(cleanID, "_sub")
+	_, _ = h.useCase.ReleaseStream(r.Context(), baseID, "h264_bridge:"+cleanID)
 	stopH264BridgeInternal(streamID)
 
 	w.WriteHeader(http.StatusOK)

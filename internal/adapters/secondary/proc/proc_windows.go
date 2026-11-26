@@ -9,6 +9,11 @@ import (
 	"syscall"
 )
 
+// GetCPUUsagePct returns a fallback CPU utilization percentage on Windows.
+func GetCPUUsagePct() float64 {
+	return 0
+}
+
 // SetHideWindow suppresses the console window creation on Windows when launching subprocesses.
 func SetHideWindow(cmd *exec.Cmd) *exec.Cmd {
 	if cmd == nil {

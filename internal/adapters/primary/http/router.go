@@ -66,6 +66,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	authEndpoint("/api/v1/streams/samples", h.HandleListSamples)
 	authEndpoint("/api/v1/ingest/stats", h.handleIngestStats)
 	authEndpoint("/api/v1/cluster/topology", h.handleClusterTopology)
+	authEndpoint("/api/v1/cluster/metrics", h.handleClusterMetrics)
 	authEndpoint("/api/v1/info", h.handleSystemInfo)
 
 	// 3. Chaos Injection Endpoints (Admin Required)
