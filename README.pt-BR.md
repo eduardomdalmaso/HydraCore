@@ -114,7 +114,7 @@ Todos os logs brutos em CSV/JSON, gráficos e relatórios em PDF estão publicad
 
 ### 1. Comparativo de Fan-Out 1-para-N: MediaMTX vs. HydraStream (`benchmark_fanout_v5.csv`)
 
-Escalonamento de consumidores concorrentes (1 → 50) em um fluxo de 15 FPS ([CSV bruto](benchmark_results/benchmark_fanout_v5.csv) · [Relatório PDF](benchmark_results/benchmark_fanout_v5.pdf)):
+Escalonamento de consumidores concorrentes (1 → 50) em um fluxo de 15 FPS ([CSV bruto](docs/assets/benchmark_fanout_v5.csv) · [Relatório PDF](docs/assets/benchmark_fanout_v5.pdf)):
 
 | Consumidores | CPU MediaMTX | CPU HydraStream | RAM MediaMTX | RAM HydraStream | Latência HydraStream (Média / P95) |
 | :---: | :---: | :---: | :---: | :---: | :---: |
@@ -130,7 +130,7 @@ Escalonamento de consumidores concorrentes (1 → 50) em um fluxo de 15 FPS ([CS
 
 ### 2. Teste de Escala de Câmeras (`100` → `377` Câmeras, `benchmark_v4_2.csv`)
 
-Ingestão simultânea progressiva ([CSV bruto](benchmark_results/benchmark_v4_2.csv) · [Relatório PDF](benchmark_results/benchmark_v4_2.pdf)):
+Ingestão simultânea progressiva ([CSV bruto](docs/assets/benchmark_v4_2.csv) · [Relatório PDF](docs/assets/benchmark_v4_2.pdf)):
 
 | Câmeras | Concorrência | Operacionais | TTFF Médio | CPU Total | RAM RSS | Tráfego RX |
 | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
@@ -141,7 +141,7 @@ Ingestão simultânea progressiva ([CSV bruto](benchmark_results/benchmark_v4_2.
 
 ### 3. Teste de Estresse Sustentado com 377 Câmeras (`benchmark_377_v6.csv`)
 
-Três repetições completas com 377 câmeras simultâneas ([CSV bruto](benchmark_results/benchmark_377_v6.csv) · [JSON](benchmark_results/benchmark_377_v6.json)):
+Três repetições completas com 377 câmeras simultâneas ([CSV bruto](docs/assets/benchmark_377_v6.csv) · [JSON](docs/assets/benchmark_377_v6.json)):
 
 | Execução | Operacionais | FPS Total | CPU Total | RAM RSS | `/dev/shm` | Tráfego RX |
 | :---: | :---: | :---: | :---: | :---: | :---: | :---: |

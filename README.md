@@ -114,7 +114,7 @@ All raw CSV/JSON logs, charts, and PDF reports are stored in [`benchmark_results
 
 ### 1. 1-to-N Fan-Out Comparison: MediaMTX vs. HydraStream (`benchmark_fanout_v5.csv`)
 
-Scaling concurrent downstream consumers (1 → 50) on a single 15 FPS stream ([raw CSV](benchmark_results/benchmark_fanout_v5.csv) · [PDF report](benchmark_results/benchmark_fanout_v5.pdf)):
+Scaling concurrent downstream consumers (1 → 50) on a single 15 FPS stream ([raw CSV](docs/assets/benchmark_fanout_v5.csv) · [PDF report](docs/assets/benchmark_fanout_v5.pdf)):
 
 | Consumers | MediaMTX CPU | HydraStream CPU | MediaMTX RAM | HydraStream RAM | HydraStream Avg / P95 Latency |
 | :---: | :---: | :---: | :---: | :---: | :---: |
@@ -130,7 +130,7 @@ Scaling concurrent downstream consumers (1 → 50) on a single 15 FPS stream ([r
 
 ### 2. High-Density Camera Scale Test (`100` → `377` Cameras, `benchmark_v4_2.csv`)
 
-Concurrent camera ingestion ramp-up ([raw CSV](benchmark_results/benchmark_v4_2.csv) · [PDF report](benchmark_results/benchmark_v4_2.pdf)):
+Concurrent camera ingestion ramp-up ([raw CSV](docs/assets/benchmark_v4_2.csv) · [PDF report](docs/assets/benchmark_v4_2.pdf)):
 
 | Target Cameras | Concurrency | Operational | Avg TTFF | CPU Total | RAM RSS | Media RX |
 | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
@@ -141,7 +141,7 @@ Concurrent camera ingestion ramp-up ([raw CSV](benchmark_results/benchmark_v4_2.
 
 ### 3. Sustained 377-Camera Stress Test (`benchmark_377_v6.csv`)
 
-Three full-scale repetitions across 377 simultaneous cameras ([raw CSV](benchmark_results/benchmark_377_v6.csv) · [JSON](benchmark_results/benchmark_377_v6.json)):
+Three full-scale repetitions across 377 simultaneous cameras ([raw CSV](docs/assets/benchmark_377_v6.csv) · [JSON](docs/assets/benchmark_377_v6.json)):
 
 | Run | Operational | Total FPS | CPU Total | RAM RSS | `/dev/shm` | Media RX |
 | :---: | :---: | :---: | :---: | :---: | :---: | :---: |

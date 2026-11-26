@@ -1,0 +1,4 @@
+rep,target_cameras,operational_continuous,reconnecting_or_error,stabilization_time_s,ttff_avg_ms,ttff_p95_ms,ttff_max_ms,cpu_pct_total,ram_rss_mb,dev_shm_mb,goroutines,fd_count,rtp_loss_total,measured_fps_total,media_rx_mbps
+1,377,376,1,12.03,3976.8,7632.9,11502.0,75.05,262.13,3005.8,386,801,322,5235.0,259.47
+2,377,366,11,13.53,3889.5,8267.6,13181.0,73.05,338.34,2928.46,400,783,945,5092.6,247.41
+3,377,374,3,12.32,4074.8,8657.6,17491.8,73.13,336.19,2987.13,389,797,721,5177.3,258.74
